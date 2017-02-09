@@ -4,7 +4,7 @@
  */
 
 #define _CRC32_
-#define NEW_SIMD_CODE
+//#define NEW_SIMD_CODE
 
 #include "inc_vendor.cl"
 #include "inc_types.cl"
