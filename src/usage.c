@@ -127,7 +127,7 @@ static const char *USAGE_BIG[] =
   "   6900 | GOST R 34.11-94                                  | Raw Hash",
   "  11700 | GOST R 34.11-2012 (Streebog) 256-bit             | Raw Hash",
   "  11800 | GOST R 34.11-2012 (Streebog) 512-bit             | Raw Hash",
-  "   1313 | Kingdom Hearts 2 Primary                         | Raw Hash",
+  "   1313 | Kingdom Hearts 2                                 | Raw Hash",
   "     10 | md5($pass.$salt)                                 | Raw Hash, Salted and / or Iterated",
   "     20 | md5($salt.$pass)                                 | Raw Hash, Salted and / or Iterated",
   "     30 | md5(unicode($pass).$salt)                        | Raw Hash, Salted and / or Iterated",

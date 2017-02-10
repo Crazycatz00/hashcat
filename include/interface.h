@@ -895,8 +895,8 @@ typedef enum display_len
   DISPLAY_LEN_MAX_1100H = 32 + 1 + 38,
   DISPLAY_LEN_MIN_1300  = 56,
   DISPLAY_LEN_MAX_1300  = 56,
-  DISPLAY_LEN_MIN_1313  = 8,
-  DISPLAY_LEN_MAX_1313  = 8,
+  DISPLAY_LEN_MIN_1313  = 8 + 1 + 4,
+  DISPLAY_LEN_MAX_1313  = 8 + 1 + 4,
   DISPLAY_LEN_MIN_1400  = 64,
   DISPLAY_LEN_MAX_1400  = 64,
   DISPLAY_LEN_MIN_1410  = 64 + 1 + 0,
@@ -1320,7 +1320,7 @@ typedef enum kern_type
   KERN_TYPE_MD4_PWU                 = 1000,
   KERN_TYPE_MD44_PWUSLT             = 1100,
   KERN_TYPE_SHA224                  = 1300,
-  KERN_TYPE_KINGDOMHEARTS2_P        = 1313,
+  KERN_TYPE_KINGDOMHEARTS2          = 1313,
   KERN_TYPE_SHA256                  = 1400,
   KERN_TYPE_SHA256_PWSLT            = 1410,
   KERN_TYPE_SHA256_SLTPW            = 1420,
@@ -1721,7 +1721,7 @@ int skip32_parse_hash             (u8 *input_buf, u32 input_len, hash_t *hash_bu
 int fortigate_parse_hash          (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig);
 int sha256b64s_parse_hash         (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig);
 int filezilla_server_parse_hash   (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig);
-int kingdomhearts2_p_parse_hash   (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig);
+int kingdomhearts2_parse_hash     (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig);
 
 /**
  * hook functions

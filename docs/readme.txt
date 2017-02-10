@@ -55,7 +55,7 @@ NVidia users require "NVIDIA Driver" (367.x or later)
 - GOST R 34.11-94
 - GOST R 34.11-2012 (Streebog) 256-bit
 - GOST R 34.11-2012 (Streebog) 512-bit
-- Kingdom Hearts 2 (Primary)
+- Kingdom Hearts 2
 - md5($pass.$salt)
 - md5($salt.$pass)
 - md5(unicode($pass).$salt)

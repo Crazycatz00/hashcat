@@ -11,6 +11,14 @@
 #include "inc_common.cl"
 #include "inc_simd.cl"
 
+#if VECT_SIZE == 1
+#define CONVERTX(type)
+#else
+#define CONVERTX3(type, width) convert_ ## type ## width
+#define CONVERTX2(type, width) CONVERTX3(type, width)
+#define CONVERTX(type) CONVERTX2(type, VECT_SIZE)
+#endif
+
 static u32x round_kh2hp(u32x a, u32x c)
 {
   a ^= c << 24;
@@ -18,19 +26,25 @@ static u32x round_kh2hp(u32x a, u32x c)
   {
     a = (a & 0x80000000) != 0 ? (a << 1) ^ 0x04c11db7 : a << 1;
   }
-  
+
   return a;
 }
 
 static u32x kh2hp(const u32x w[16], const u32 pw_len)
 {
   u32x a = ~0;
+
   if (pw_len >= 1) a = round_kh2hp(a, w[0] >>  0);
   if (pw_len >= 2) a = round_kh2hp(a, w[0] >>  8);
   if (pw_len >= 3) a = round_kh2hp(a, w[0] >> 16);
   if (pw_len >= 4) a = round_kh2hp(a, w[0] >> 24);
 
-  for (u32 i = 4, j = 1; i < pw_len; i += 4, j += 1)
+  if (pw_len >= 5) a = round_kh2hp(a, w[1] >>  0);
+  if (pw_len >= 6) a = round_kh2hp(a, w[1] >>  8);
+  if (pw_len >= 7) a = round_kh2hp(a, w[1] >> 16);
+  if (pw_len >= 8) a = round_kh2hp(a, w[1] >> 24);
+
+  for (u32 i = 8, j = 2; i < pw_len; i += 4, j += 1)
   {
     if (pw_len >= (i + 1)) a = round_kh2hp(a, w[j] >>  0);
     if (pw_len >= (i + 2)) a = round_kh2hp(a, w[j] >>  8);
@@ -39,6 +53,36 @@ static u32x kh2hp(const u32x w[16], const u32 pw_len)
   }
 
   return ~a;
+}
+
+static u32x round_kh2hs(u32x a, u32x c)
+{
+  a ^= c << 8;
+  for (u32 i = 0; i < 8; i += 1)
+  {
+    a = (a & 0x8000) != 0 ? (a << 1) ^ 0x1021 : a << 1;
+  }
+
+  return a;
+}
+
+static u16x kh2hs(const u32x w[16], const u32 pw_len)
+{
+  u32x a = ~0;
+
+  if (pw_len >= 1)
+  {
+    for (u32 j = (pw_len - 1) / 4, i = j * 4; ; i -= 4, j -= 1)
+    {
+      if (pw_len >= (i + 4)) a = round_kh2hs(a, w[j] >> 24);
+      if (pw_len >= (i + 3)) a = round_kh2hs(a, w[j] >> 16);
+      if (pw_len >= (i + 2)) a = round_kh2hs(a, w[j] >>  8);
+      if (pw_len >= (i + 1)) a = round_kh2hs(a, w[j] >>  0);
+      if (i == 0) break;
+    }
+  }
+
+  return CONVERTX(ushort)(~a);
 }
 
 
@@ -72,9 +116,10 @@ static void m01313m(__global const u32 w[16], const u32 pw_len, __global pw_t *p
   {
     w_t[0] = w00 | words_buf_r[il_pos / VECT_SIZE];
 
-    const u32x a = kh2hp(w_t, pw_len);
+    const u32x hashP = kh2hp(w_t, pw_len);
+    const u16x hashS = kh2hs(w_t, pw_len);
 
-    COMPARE_M_SIMD(a, z, z, z);
+    COMPARE_M_SIMD(hashP, hashS, z, z);
   }
 }
 
@@ -85,7 +130,7 @@ static void m01313s(__global const u32 w[16], const u32 pw_len, __global pw_t *p
   const u32 search[4] =
   {
     digests_buf[digests_offset].digest_buf[DGST_R0],
-    0,
+    digests_buf[digests_offset].digest_buf[DGST_R1],
     0,
     0
   };
@@ -115,9 +160,11 @@ static void m01313s(__global const u32 w[16], const u32 pw_len, __global pw_t *p
   {
     w_t[0] = w00 | words_buf_r[il_pos / VECT_SIZE];
 
-    const u32x a = kh2hp(w_t, pw_len);
+    const u32x hashP = kh2hp(w_t, pw_len);
+	if (MATCHES_NONE_VS(hashP, search[0])) continue;
+    const u16x hashS = kh2hs(w_t, pw_len);
 
-    COMPARE_S_SIMD(a, z, z, z);
+    COMPARE_S_SIMD(hashP, hashS, z, z);
   }
 }
 

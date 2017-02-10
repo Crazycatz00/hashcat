@@ -13,7 +13,7 @@
 ## Algorithms
 ##
 
-- Added hash-mode  1313 = Kingdom Hearts 2 (Primary)
+- Added hash-mode  1313 = Kingdom Hearts 2
 - Added hash-mode  1411 = SSHA-256(Base64), LDAP {SSHA256}
 - Added hash-mode  4010 = md5($salt.md5($salt.$pass))
 - Added hash-mode  4110 = md5($salt.md5($pass.$salt))

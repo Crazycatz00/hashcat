@@ -99,7 +99,7 @@ static const char HT_00910[] = "md4($pass.$salt)";
 static const char HT_01000[] = "NTLM";
 static const char HT_01100[] = "Domain Cached Credentials (DCC), MS Cache";
 static const char HT_01300[] = "SHA224";
-static const char HT_01313[] = "Kingdom Hearts 2 (Primary)";
+static const char HT_01313[] = "Kingdom Hearts 2";
 static const char HT_01400[] = "SHA256";
 static const char HT_01410[] = "sha256($pass.$salt)";
 static const char HT_01420[] = "sha256($salt.$pass)";
@@ -14080,16 +14080,22 @@ int filezilla_server_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf,
   return (PARSER_OK);
 }
 
-int kingdomhearts2_p_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig)
+int kingdomhearts2_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig)
 {
   if ((input_len < DISPLAY_LEN_MIN_1313) || (input_len > DISPLAY_LEN_MAX_1313)) return (PARSER_GLOBAL_LENGTH);
 
   u32 *digest = (u32 *) hash_buf->digest;
 
+  // Hash format: PRIMARY_:2ND_
   if (is_valid_hex_string (input_buf, 8) == false) return (PARSER_HASH_ENCODING);
+  if (input_buf[8] != hashconfig->separator) return (PARSER_SEPARATOR_UNMATCHED);
+  if (is_valid_hex_string (&input_buf[9], 4) == false) return (PARSER_HASH_ENCODING);
 
-  digest[0] = byte_swap_32 (hex_to_u32 ((const u8 *) &input_buf[0]));
-  digest[1] = 0;
+  // Primary hash
+  digest[0] =  byte_swap_32 (hex_to_u32 ((const u8 *) &input_buf[0]));
+  // Secondary hash
+  digest[1] =  byte_swap_16 ((u16)hex_to_u8((const u8 *) &input_buf[9    ])
+                          | ((u16)hex_to_u8((const u8 *) &input_buf[9 + 2]) << 8));
   digest[2] = 0;
   digest[3] = 0;
 
@@ -15333,6 +15339,10 @@ int ascii_digest (hashcat_ctx_t *hashcat_ctx, char *out_buf, const size_t out_le
     char        *hash_buf     = hashinfo_ptr[digest_idx]->orighash;
 
     snprintf (out_buf, out_len - 1, "%s", hash_buf);
+  }
+  else if (hash_mode == 1313)
+  {
+    snprintf (out_buf, out_len - 1, "%08x:%04x", byte_swap_32 (digest_buf[0]), byte_swap_32 (digest_buf[1]));
   }
   else if (hash_mode == 1411)
   {
@@ -18883,10 +18893,11 @@ int hashconfig_init (hashcat_ctx_t *hashcat_ctx)
                  hashconfig->opts_type      = OPTS_TYPE_PT_GENERATE_LE
                                             | OPTS_TYPE_ST_GENERATE_LE
                                             | OPTS_TYPE_ST_HEX;
-                 hashconfig->kern_type      = KERN_TYPE_KINGDOMHEARTS2_P;
+                 hashconfig->kern_type      = KERN_TYPE_KINGDOMHEARTS2;
                  hashconfig->dgst_size      = DGST_SIZE_4_4;
-                 hashconfig->parse_func     = kingdomhearts2_p_parse_hash;
+                 hashconfig->parse_func     = kingdomhearts2_parse_hash;
                  hashconfig->opti_type      = OPTI_TYPE_ZERO_BYTE
+                                            | OPTI_TYPE_EARLY_SKIP
                                             | OPTI_TYPE_NOT_ITERATED
                                             | OPTI_TYPE_NOT_SALTED
                                             | OPTI_TYPE_RAW_HASH;
