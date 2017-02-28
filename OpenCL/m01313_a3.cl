@@ -10,14 +10,6 @@
 #include "inc_common.cl"
 #include "inc_simd.cl"
 
-#if VECT_SIZE == 1
-#define CONVERTX(type)
-#else
-#define CONVERTX3(type, width) convert_ ## type ## width
-#define CONVERTX2(type, width) CONVERTX3(type, width)
-#define CONVERTX(type) CONVERTX2(type, VECT_SIZE)
-#endif
-
 u32x round_kh2hp(u32x a, u32x c)
 {
   a ^= c << 24;
@@ -65,7 +57,7 @@ u32x round_kh2hs(u32x a, u32x c)
   return a;
 }
 
-u16x kh2hs(const u32x w[16], const u32 pw_len)
+u32x kh2hs(const u32x w[16], const u32 pw_len)
 {
   u32x a = ~0;
 
@@ -81,7 +73,7 @@ u16x kh2hs(const u32x w[16], const u32 pw_len)
     }
   }
 
-  return CONVERTX(ushort)(~a);
+  return ~a & 0x0000FFFF;
 }
 
 void m01313m(__global const u32 w[16], const u32 pw_len, __global pw_t *pws, __global const kernel_rule_t *rules_buf, __global const comb_t *combs_buf, __global const u32x * words_buf_r, __global void *tmps, __global void *hooks, __global const u32 *bitmaps_buf_s1_a, __global const u32 *bitmaps_buf_s1_b, __global const u32 *bitmaps_buf_s1_c, __global const u32 *bitmaps_buf_s1_d, __global const u32 *bitmaps_buf_s2_a, __global const u32 *bitmaps_buf_s2_b, __global const u32 *bitmaps_buf_s2_c, __global const u32 *bitmaps_buf_s2_d, __global plain_t *plains_buf, __global const digest_t *digests_buf, __global u32 *hashes_shown, __global const salt_t *salt_bufs, __global const void *esalt_bufs, __global u32 *d_return_buf, __global u32 *d_scryptV0_buf, __global u32 *d_scryptV1_buf, __global u32 *d_scryptV2_buf, __global u32 *d_scryptV3_buf, const u32 bitmap_mask, const u32 bitmap_shift1, const u32 bitmap_shift2, const u32 salt_pos, const u32 loop_pos, const u32 loop_cnt, const u32 il_cnt, const u32 digests_cnt, const u32 digests_offset)
@@ -115,7 +107,7 @@ void m01313m(__global const u32 w[16], const u32 pw_len, __global pw_t *pws, __g
     w_t[0] = w00 | words_buf_r[il_pos / VECT_SIZE];
 
     const u32x hashP = kh2hp(w_t, pw_len);
-    const u16x hashS = kh2hs(w_t, pw_len);
+    const u32x hashS = kh2hs(w_t, pw_len);
 
     COMPARE_M_SIMD(hashP, hashS, z, z);
   }
@@ -160,7 +152,7 @@ void m01313s(__global const u32 w[16], const u32 pw_len, __global pw_t *pws, __g
 
     const u32x hashP = kh2hp(w_t, pw_len);
 	if (MATCHES_NONE_VS(hashP, search[0])) continue;
-    const u16x hashS = kh2hs(w_t, pw_len);
+    const u32x hashS = kh2hs(w_t, pw_len);
 
     COMPARE_S_SIMD(hashP, hashS, z, z);
   }
