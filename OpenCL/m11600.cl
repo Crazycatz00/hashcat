@@ -3,15 +3,13 @@
  * License.....: MIT
  */
 
-#define _SEVEN_ZIP_
-
 #include "inc_vendor.cl"
 #include "inc_hash_constants.h"
 #include "inc_hash_functions.cl"
 #include "inc_types.cl"
 #include "inc_common.cl"
 
-__constant u32 k_sha256[64] =
+__constant u32a k_sha256[64] =
 {
   SHA256C00, SHA256C01, SHA256C02, SHA256C03,
   SHA256C04, SHA256C05, SHA256C06, SHA256C07,
@@ -31,7 +29,7 @@ __constant u32 k_sha256[64] =
   SHA256C3c, SHA256C3d, SHA256C3e, SHA256C3f,
 };
 
-static void sha256_transform (const u32 w[16], u32 digest[8])
+void sha256_transform (const u32 w[16], u32 digest[8])
 {
   u32 a = digest[0];
   u32 b = digest[1];
@@ -119,7 +117,7 @@ static void sha256_transform (const u32 w[16], u32 digest[8])
   digest[7] += h;
 }
 
-static u32 memcat8c_be (u32 block[16], const u32 block_len, const u32 append, const u32 append_len, u32 digest[8])
+u32 memcat8c_be (u32 block[16], const u32 block_len, const u32 append, const u32 append_len, u32 digest[8])
 {
   const u32 mod = block_len & 3;
   const u32 div = block_len / 4;
@@ -222,7 +220,7 @@ static u32 memcat8c_be (u32 block[16], const u32 block_len, const u32 append, co
   return new_len;
 }
 
-static u32 memcat64c_be (u32 block[16], const u32 block_len, const u32 append[16], const u32 append_len, u32 digest[8])
+u32 memcat64c_be (u32 block[16], const u32 block_len, const u32 append[16], const u32 append_len, u32 digest[8])
 {
   const u32 mod = block_len & 3;
   const u32 div = block_len / 4;
@@ -853,7 +851,7 @@ __kernel void m11600_comp (__global pw_t *pws, __global const kernel_rule_t *rul
 
   if (seven_zip_hook[gid].hook_success == 1)
   {
-    mark_hash (plains_buf, d_return_buf, salt_pos, 0, digests_offset + 0, gid, 0);
+    mark_hash (plains_buf, d_return_buf, salt_pos, digests_cnt, 0, digests_offset + 0, gid, 0);
 
     return;
   }

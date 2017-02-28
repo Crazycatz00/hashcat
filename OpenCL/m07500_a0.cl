@@ -3,8 +3,6 @@
  * License.....: MIT
  */
 
-#define _KRB5PA_
-
 //shared mem too small
 //#define NEW_SIMD_CODE
 
@@ -25,7 +23,7 @@ typedef struct
 
 } RC4_KEY;
 
-static void swap (__local RC4_KEY *rc4_key, const u8 i, const u8 j)
+void swap (__local RC4_KEY *rc4_key, const u8 i, const u8 j)
 {
   u8 tmp;
 
@@ -34,7 +32,7 @@ static void swap (__local RC4_KEY *rc4_key, const u8 i, const u8 j)
   rc4_key->S[j] = tmp;
 }
 
-static void rc4_init_16 (__local RC4_KEY *rc4_key, const u32 data[4])
+void rc4_init_16 (__local RC4_KEY *rc4_key, const u32 data[4])
 {
   u32 v = 0x03020100;
   u32 a = 0x04040404;
@@ -87,7 +85,7 @@ static void rc4_init_16 (__local RC4_KEY *rc4_key, const u32 data[4])
   }
 }
 
-static u8 rc4_next_16 (__local RC4_KEY *rc4_key, u8 i, u8 j, const u32 in[4], u32 out[4])
+u8 rc4_next_16 (__local RC4_KEY *rc4_key, u8 i, u8 j, const u32 in[4], u32 out[4])
 {
   #ifdef _unroll
   #pragma unroll
@@ -140,7 +138,7 @@ static u8 rc4_next_16 (__local RC4_KEY *rc4_key, u8 i, u8 j, const u32 in[4], u3
   return j;
 }
 
-static int decrypt_and_check (__local RC4_KEY *rc4_key, u32 data[4], u32 timestamp_ct[8])
+int decrypt_and_check (__local RC4_KEY *rc4_key, u32 data[4], u32 timestamp_ct[8])
 {
   rc4_init_16 (rc4_key, data);
 
@@ -170,7 +168,7 @@ static int decrypt_and_check (__local RC4_KEY *rc4_key, u32 data[4], u32 timesta
   return 1;
 }
 
-static void md4_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], const u32 w3[4], u32 digest[4])
+void md4_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], const u32 w3[4], u32 digest[4])
 {
   u32 a = digest[0];
   u32 b = digest[1];
@@ -234,7 +232,7 @@ static void md4_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], co
   digest[3] += d;
 }
 
-static void md5_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], const u32 w3[4], u32 digest[4])
+void md5_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], const u32 w3[4], u32 digest[4])
 {
   u32 a = digest[0];
   u32 b = digest[1];
@@ -332,7 +330,7 @@ static void md5_transform (const u32 w0[4], const u32 w1[4], const u32 w2[4], co
   digest[3] += d;
 }
 
-static void hmac_md5_pad (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4], u32 opad[4])
+void hmac_md5_pad (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4], u32 opad[4])
 {
   w0[0] = w0[0] ^ 0x36363636;
   w0[1] = w0[1] ^ 0x36363636;
@@ -383,7 +381,7 @@ static void hmac_md5_pad (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4
   md5_transform (w0, w1, w2, w3, opad);
 }
 
-static void hmac_md5_run (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4], u32 opad[4], u32 digest[4])
+void hmac_md5_run (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4], u32 opad[4], u32 digest[4])
 {
   digest[0] = ipad[0];
   digest[1] = ipad[1];
@@ -417,7 +415,7 @@ static void hmac_md5_run (u32 w0[4], u32 w1[4], u32 w2[4], u32 w3[4], u32 ipad[4
   md5_transform (w0, w1, w2, w3, digest);
 }
 
-static void kerb_prepare (const u32 w0[4], const u32 w1[4], const u32 pw_len, const u32 checksum[4], u32 digest[4])
+void kerb_prepare (const u32 w0[4], const u32 w1[4], const u32 pw_len, const u32 checksum[4], u32 digest[4])
 {
   /**
    * pads
@@ -634,7 +632,7 @@ __kernel void m07500_m04 (__global pw_t *pws, __global const kernel_rule_t *rule
 
     if (decrypt_and_check (&rc4_keys[lid], tmp, timestamp_ct) == 1)
     {
-      mark_hash (plains_buf, d_return_buf, salt_pos, 0, digests_offset + 0, gid, il_pos);
+      mark_hash (plains_buf, d_return_buf, salt_pos, digests_cnt, 0, digests_offset + 0, gid, il_pos);
     }
   }
 }
@@ -735,7 +733,7 @@ __kernel void m07500_s04 (__global pw_t *pws, __global const kernel_rule_t *rule
 
     if (decrypt_and_check (&rc4_keys[lid], tmp, timestamp_ct) == 1)
     {
-      mark_hash (plains_buf, d_return_buf, salt_pos, 0, digests_offset + 0, gid, il_pos);
+      mark_hash (plains_buf, d_return_buf, salt_pos, digests_cnt, 0, digests_offset + 0, gid, il_pos);
     }
   }
 }

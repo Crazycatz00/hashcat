@@ -3,8 +3,6 @@
  * License.....: MIT
  */
 
-#define _OLDOFFICE01_
-
 #define NEW_SIMD_CODE
 
 #include "inc_vendor.cl"
@@ -14,7 +12,7 @@
 #include "inc_common.cl"
 #include "inc_simd.cl"
 
-static void md5_transform (const u32x w0[4], const u32x w1[4], const u32x w2[4], const u32x w3[4], u32x digest[4])
+void md5_transform (const u32x w0[4], const u32x w1[4], const u32x w2[4], const u32x w3[4], u32x digest[4])
 {
   u32x a = digest[0];
   u32x b = digest[1];
@@ -112,7 +110,7 @@ static void md5_transform (const u32x w0[4], const u32x w1[4], const u32x w2[4],
   digest[3] += d;
 }
 
-static void gen336 (u32x digest_pre[4], u32 salt_buf[4], u32x digest[4])
+void gen336 (u32x digest_pre[4], u32 salt_buf[4], u32x digest[4])
 {
   u32x digest_t0[2];
   u32x digest_t1[2];

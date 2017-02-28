@@ -1,6 +1,6 @@
 ## *hashcat* ##
 
-**hashcat** is the world's fastest and most advanced password recovery utility, supporting five unique modes of attack for over 160 highly-optimized hashing algorithms. hashcat currently supports CPU's, GPU's and other hardware-accelerators on Linux, Windows and OSX, and has facilities to help enable distributed password cracking.
+**hashcat** is the world's fastest and most advanced password recovery utility, supporting five unique modes of attack for over 200 highly-optimized hashing algorithms. hashcat currently supports CPUs, GPUs, and other hardware accelerators on Linux, Windows, and OSX, and has facilities to help enable distributed password cracking.
 
 ### License ###
 
@@ -16,9 +16,13 @@ Please refer to the [Hashcat Wiki](https://hashcat.net/wiki/) and the output of 
 
 ### Building ###
 
-[![Hashcat Build status](https://travis-ci.org/hashcat/hashcat.svg?branch=master)](https://travis-ci.org/hashcat/hashcat)
-
 Refer to [BUILD.md](BUILD.md) for instructions on how to build **hashcat** from source.
+
+Tests:  
+
+Travis | Appveyor | Coverity
+------ | -------- | --------
+[![Hashcat Travis Build status](https://travis-ci.org/hashcat/hashcat.svg?branch=master)](https://travis-ci.org/hashcat/hashcat) | [![Hashcat Appveyor Build status](https://ci.appveyor.com/api/projects/status/github/hashcat/hashcat?branch=master&svg=true)](https://ci.appveyor.com/project/jsteube/hashcat) | [![Coverity Scan Build Status](https://scan.coverity.com/projects/11753/badge.svg)](https://scan.coverity.com/projects/hashcat)
 
 ### Contributing ###
 

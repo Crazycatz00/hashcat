@@ -5,7 +5,7 @@
 
 SHARED                  := 0
 DEBUG                   := 0
-PRODUCTION              := 0
+PRODUCTION              := 1
 
 ##
 ## Detect Operating System
@@ -85,10 +85,12 @@ FIND                    := find
 INSTALL                 := install
 RM                      := rm
 SED                     := sed
+SED_IN_PLACE            := -i
 
 ifeq ($(UNAME),Darwin)
 CC                      := clang
-SED                     := gsed
+# the sed -i option of OSX requires a parameter for the backup file (we just use "")
+SED_IN_PLACE            := -i ""
 endif
 
 ifeq ($(UNAME),FreeBSD)
@@ -120,7 +122,6 @@ VERSION_TAG             := $(shell test -d .git && git describe --tags --dirty=+
 ##
 
 CFLAGS                  += -pipe -std=c99 -Iinclude/ -Iinclude/lzma_sdk/ -IOpenCL/
-CFLAGS                  += -Wno-format-zero-length
 
 ifeq ($(PRODUCTION),0)
 CFLAGS                  += -W
@@ -163,10 +164,10 @@ LFLAGS                  := $(LDFLAGS)
 ifeq ($(DEBUG),0)
 CFLAGS                  += -O2
 LFLAGS                  += -s
-else 
+else
 ifeq ($(DEBUG),1)
 CFLAGS                  += -DDEBUG -g -ggdb
-else 
+else
 ifeq ($(DEBUG),2)
 CFLAGS                  += -DDEBUG -g -ggdb
 CFLAGS                  += -fsanitize=address -fno-omit-frame-pointer
@@ -181,7 +182,6 @@ endif
 ifeq ($(UNAME),Linux)
 CFLAGS_NATIVE           := $(CFLAGS)
 CFLAGS_NATIVE           += -I$(OPENCL_HEADERS_KHRONOS)/
-CFLAGS_NATIVE           += -march=native
 CFLAGS_NATIVE           += -DWITH_HWMON
 LFLAGS_NATIVE           := $(LFLAGS)
 LFLAGS_NATIVE           += -lpthread -ldl
@@ -191,7 +191,6 @@ ifeq ($(UNAME),FreeBSD)
 ifndef PORTNAME
 CFLAGS_NATIVE           := $(CFLAGS)
 CFLAGS_NATIVE           += -I$(OPENCL_HEADERS_KHRONOS)/
-CFLAGS_NATIVE           += -march=native
 LFLAGS_NATIVE           := $(LFLAGS)
 LFLAGS_NATIVE           += -lpthread
 endif
@@ -200,7 +199,6 @@ endif # FreeBSD
 ifeq ($(UNAME),Darwin)
 export MACOSX_DEPLOYMENT_TARGET=10.9
 CFLAGS_NATIVE           := $(CFLAGS)
-CFLAGS_NATIVE           += -march=native
 LFLAGS_NATIVE           := $(LFLAGS)
 LFLAGS_NATIVE           += -framework OpenCL
 LFLAGS_NATIVE           += -lpthread
@@ -209,7 +207,6 @@ endif # Darwin
 ifeq ($(UNAME),CYGWIN)
 CFLAGS_NATIVE           := $(CFLAGS)
 CFLAGS_NATIVE           += -I$(OPENCL_HEADERS_KHRONOS)/
-CFLAGS_NATIVE           += -march=native
 CFLAGS_NATIVE           += -DWITH_HWMON
 LFLAGS_NATIVE           := $(LFLAGS)
 LFLAGS_NATIVE           += -Wl,--dynamicbase -Wl,--nxcompat
@@ -219,7 +216,6 @@ endif # CYGWIN
 ifeq ($(UNAME),MSYS2)
 CFLAGS_NATIVE           := $(CFLAGS)
 CFLAGS_NATIVE           += -I$(OPENCL_HEADERS_KHRONOS)/
-CFLAGS_NATIVE           += -march=native
 CFLAGS_NATIVE           += -DWITH_HWMON
 LFLAGS_NATIVE           := $(LFLAGS)
 LFLAGS_NATIVE           += -Wl,--dynamicbase -Wl,--nxcompat
@@ -259,16 +255,6 @@ LFLAGS_CROSS_WIN64      += -Wl,--dynamicbase -Wl,--nxcompat
 LFLAGS_CROSS_WIN64      += -lpsapi
 
 ##
-## Windows CRT file globbing
-##
-
-CRT_GLOB_32              :=
-CRT_GLOB_64              :=
-CRT_GLOB_INCLUDE_FOLDER  := $(dir $(lastword $(MAKEFILE_LIST)))
-
-include $(CRT_GLOB_INCLUDE_FOLDER)/win_file_globbing.mk
-
-##
 ## Objects
 ##
 
@@ -277,19 +263,11 @@ OBJS_ALL                := affinity autotune benchmark bitmap bitops combinator 
 NATIVE_STATIC_OBJS      := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).NATIVE.STATIC.o)
 NATIVE_SHARED_OBJS      := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).NATIVE.SHARED.o)
 
-ifeq ($(UNAME),CYGWIN)
-NATIVE_STATIC_OBJS      += $(CRT_GLOB)
-endif # CYGWIN
-
-ifeq ($(UNAME),MSYS2)
-NATIVE_STATIC_OBJS      += $(CRT_GLOB)
-endif # MSYS2
-
 LINUX_32_OBJS           := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).LINUX.32.o)
 LINUX_64_OBJS           := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).LINUX.64.o)
 
-WIN_32_OBJS             := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).WIN.32.o) $(CRT_GLOB_32)
-WIN_64_OBJS             := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).WIN.64.o) $(CRT_GLOB_64)
+WIN_32_OBJS             := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).WIN.32.o)
+WIN_64_OBJS             := $(foreach OBJ,$(OBJS_ALL),obj/$(OBJ).WIN.64.o)
 
 ##
 ## Targets: Native Compilation
@@ -353,9 +331,9 @@ install_docs:
 	$(FIND) masks/    -type f -exec $(INSTALL) -m 644 {}    $(DESTDIR)$(DOCUMENT_FOLDER)/{} \;
 	$(FIND) rules/    -type d -exec $(INSTALL) -m 755 -d    $(DESTDIR)$(DOCUMENT_FOLDER)/{} \;
 	$(FIND) rules/    -type f -exec $(INSTALL) -m 644 {}    $(DESTDIR)$(DOCUMENT_FOLDER)/{} \;
-	$(SED) -i 's/\.\/hashcat/hashcat/'                      $(DESTDIR)$(DOCUMENT_FOLDER)/example0.sh
-	$(SED) -i 's/\.\/hashcat/hashcat/'                      $(DESTDIR)$(DOCUMENT_FOLDER)/example400.sh
-	$(SED) -i 's/\.\/hashcat/hashcat/'                      $(DESTDIR)$(DOCUMENT_FOLDER)/example500.sh
+	$(SED) $(SED_IN_PLACE) 's/\.\/hashcat/hashcat/'         $(DESTDIR)$(DOCUMENT_FOLDER)/example0.sh
+	$(SED) $(SED_IN_PLACE) 's/\.\/hashcat/hashcat/'         $(DESTDIR)$(DOCUMENT_FOLDER)/example400.sh
+	$(SED) $(SED_IN_PLACE) 's/\.\/hashcat/hashcat/'         $(DESTDIR)$(DOCUMENT_FOLDER)/example500.sh
 
 install_shared:
 	$(INSTALL) -m 755 -d                                    $(DESTDIR)$(SHARED_FOLDER)

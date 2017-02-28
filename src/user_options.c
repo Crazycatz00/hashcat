@@ -38,6 +38,7 @@ static const struct option long_options[] =
   {"gpu-temp-disable",          no_argument,       0, IDX_GPU_TEMP_DISABLE},
   {"gpu-temp-retain",           required_argument, 0, IDX_GPU_TEMP_RETAIN},
   {"hash-type",                 required_argument, 0, IDX_HASH_MODE},
+  {"hccapx-message-pair",       required_argument, 0, IDX_HCCAPX_MESSAGE_PAIR},
   {"help",                      no_argument,       0, IDX_HELP},
   {"hex-charset",               no_argument,       0, IDX_HEX_CHARSET},
   {"hex-salt",                  no_argument,       0, IDX_HEX_SALT},
@@ -132,6 +133,7 @@ int user_options_init (hashcat_ctx_t *hashcat_ctx)
   user_options->gpu_temp_disable          = GPU_TEMP_DISABLE;
   user_options->gpu_temp_retain           = GPU_TEMP_RETAIN;
   user_options->hash_mode                 = HASH_MODE;
+  user_options->hccapx_message_pair       = HCCAPX_MESSAGE_PAIR;
   user_options->hex_charset               = HEX_CHARSET;
   user_options->hex_salt                  = HEX_SALT;
   user_options->hex_wordlist              = HEX_WORDLIST;
@@ -313,6 +315,8 @@ int user_options_getopt (hashcat_ctx_t *hashcat_ctx, int argc, char **argv)
       case IDX_GPU_TEMP_RETAIN:           user_options->gpu_temp_retain           = atoi (optarg);  break;
       case IDX_POWERTUNE_ENABLE:          user_options->powertune_enable          = true;           break;
       case IDX_LOGFILE_DISABLE:           user_options->logfile_disable           = true;           break;
+      case IDX_HCCAPX_MESSAGE_PAIR:       user_options->hccapx_message_pair       = atoi (optarg);
+                                          user_options->hccapx_message_pair_chgd  = true;           break;
       case IDX_TRUECRYPT_KEYFILES:        user_options->truecrypt_keyfiles        = optarg;         break;
       case IDX_VERACRYPT_KEYFILES:        user_options->veracrypt_keyfiles        = optarg;         break;
       case IDX_VERACRYPT_PIM:             user_options->veracrypt_pim             = atoi (optarg);  break;
@@ -384,6 +388,23 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
     event_log_error (hashcat_ctx, "Invalid attack-mode specified");
 
     return -1;
+  }
+
+  if (user_options->hccapx_message_pair_chgd == true)
+  {
+    if (user_options->remove == true)
+    {
+      event_log_error (hashcat_ctx, "Mixing remove parameter not allowed with hccapx-message-pair parameter");
+
+      return -1;
+    }
+
+    if (user_options->hccapx_message_pair >= 6)
+    {
+      event_log_error (hashcat_ctx, "Invalid hccapx-message-pair specified");
+
+      return -1;
+    }
   }
 
   if (user_options->runtime_chgd == true && user_options->runtime == 0)
@@ -546,8 +567,10 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
     if (user_options->force == false)
     {
       event_log_error (hashcat_ctx, "The manual use of the -n option (or --kernel-accel) is outdated.");
-      event_log_error (hashcat_ctx, "Please consider using the -w option instead.");
-      event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so.");
+
+      event_log_warning (hashcat_ctx, "Please consider using the -w option instead.");
+      event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so.");
+      event_log_warning (hashcat_ctx, NULL);
 
       return -1;
     }
@@ -572,8 +595,10 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
     if (user_options->force == false)
     {
       event_log_error (hashcat_ctx, "The manual use of the -u option (or --kernel-loops) is outdated.");
-      event_log_error (hashcat_ctx, "Please consider using the -w option instead.");
-      event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so.");
+
+      event_log_warning (hashcat_ctx, "Please consider using the -w option instead.");
+      event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so.");
+      event_log_warning (hashcat_ctx, NULL);
 
       return -1;
     }
@@ -689,7 +714,6 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
     }
   }
 
-
   if (user_options->debug_mode > 0)
   {
     if (user_options->attack_mode != ATTACK_MODE_STRAIGHT)
@@ -771,6 +795,34 @@ int user_options_sanity (hashcat_ctx_t *hashcat_ctx)
 
         return -1;
       }
+    }
+  }
+
+  // custom charset checks
+
+  if ((user_options->custom_charset_1 != NULL)
+   || (user_options->custom_charset_2 != NULL)
+   || (user_options->custom_charset_3 != NULL)
+   || (user_options->custom_charset_4 != NULL))
+  {
+    if (user_options->attack_mode == ATTACK_MODE_STRAIGHT)
+    {
+      event_log_error (hashcat_ctx, "Custom-charsets not supported in attack-mode 0");
+
+      return -1;
+    }
+    else if (user_options->attack_mode == ATTACK_MODE_COMBI)
+    {
+      event_log_error (hashcat_ctx, "Custom-charsets not supported in attack-mode 1");
+
+      return -1;
+    }
+
+    if (user_options->hc_argc < 2)
+    {
+      event_log_error (hashcat_ctx, "You need to specify a mask if you specify a custom-charset");
+
+      return -1;
     }
   }
 
@@ -1540,25 +1592,44 @@ int user_options_check_files (hashcat_ctx_t *hashcat_ctx)
     hc_stat_t tmpstat_outfile;
     hc_stat_t tmpstat_hashfile;
 
+    memset (&tmpstat_outfile,  0, sizeof (tmpstat_outfile));
+    memset (&tmpstat_hashfile, 0, sizeof (tmpstat_hashfile));
+
+    int do_check = 0;
+
     FILE *tmp_outfile_fp = fopen (outfile, "r");
 
     if (tmp_outfile_fp)
     {
-      hc_fstat (fileno (tmp_outfile_fp), &tmpstat_outfile);
+      if (hc_fstat (fileno (tmp_outfile_fp), &tmpstat_outfile))
+      {
+        fclose (tmp_outfile_fp);
+
+        return -1;
+      }
 
       fclose (tmp_outfile_fp);
+
+      do_check++;
     }
 
     FILE *tmp_hashfile_fp = fopen (hashfile, "r");
 
     if (tmp_hashfile_fp)
     {
-      hc_fstat (fileno (tmp_hashfile_fp), &tmpstat_hashfile);
+      if (hc_fstat (fileno (tmp_hashfile_fp), &tmpstat_hashfile))
+      {
+        fclose (tmp_hashfile_fp);
+
+        return -1;
+      }
 
       fclose (tmp_hashfile_fp);
+
+      do_check++;
     }
 
-    if (tmp_outfile_fp)
+    if (do_check == 2)
     {
       tmpstat_outfile.st_mode     = 0;
       tmpstat_outfile.st_nlink    = 0;

@@ -3,8 +3,6 @@
  * License.....: MIT
  */
 
-#define _DES_
-
 #define NEW_SIMD_CODE
 
 #include "inc_vendor.cl"
@@ -54,7 +52,7 @@
   PERM_OP (l, r, tt,  4, 0x0f0f0f0f);  \
 }
 
-__constant u32 c_SPtrans[8][64] =
+__constant u32a c_SPtrans[8][64] =
 {
   {
     /* nibble 0 */
@@ -210,7 +208,7 @@ __constant u32 c_SPtrans[8][64] =
   },
 };
 
-__constant u32 c_skb[8][64] =
+__constant u32a c_skb[8][64] =
 {
   {
     0x00000000, 0x00000010, 0x20000000, 0x20000010,
@@ -382,7 +380,7 @@ __constant u32 c_skb[8][64] =
 #define BOX1(i,S) (u32x) ((S)[(i).s0], (S)[(i).s1], (S)[(i).s2], (S)[(i).s3], (S)[(i).s4], (S)[(i).s5], (S)[(i).s6], (S)[(i).s7], (S)[(i).s8], (S)[(i).s9], (S)[(i).sa], (S)[(i).sb], (S)[(i).sc], (S)[(i).sd], (S)[(i).se], (S)[(i).sf])
 #endif
 
-static void _des_crypt_encrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[16], __local u32 (*s_SPtrans)[64])
+void _des_crypt_encrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[16], __local u32 (*s_SPtrans)[64])
 {
   u32x r = rotl32 (data[0], 3u);
   u32x l = rotl32 (data[1], 3u);
@@ -426,7 +424,7 @@ static void _des_crypt_encrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[1
   iv[1] = rotl32 (r, 29u);
 }
 
-static void _des_crypt_decrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[16], __local u32 (*s_SPtrans)[64])
+void _des_crypt_decrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[16], __local u32 (*s_SPtrans)[64])
 {
   u32x r = rotl32 (data[0], 3u);
   u32x l = rotl32 (data[1], 3u);
@@ -470,7 +468,7 @@ static void _des_crypt_decrypt (u32x iv[2], u32x data[2], u32x Kc[16], u32x Kd[1
   iv[1] = rotl32 (r, 29u);
 }
 
-static void _des_crypt_keysetup (u32x c, u32x d, u32x Kc[16], u32x Kd[16], __local u32 (*s_skb)[64])
+void _des_crypt_keysetup (u32x c, u32x d, u32x Kc[16], u32x Kd[16], __local u32 (*s_skb)[64])
 {
   u32x tt;
 

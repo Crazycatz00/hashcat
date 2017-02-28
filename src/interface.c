@@ -73,6 +73,7 @@ static const char PA_029[] = "Invalid LUKS key AF stripes count";
 static const char PA_030[] = "Invalid combination of LUKS hash type and cipher type";
 static const char PA_031[] = "Invalid hccapx signature";
 static const char PA_032[] = "Invalid hccapx version";
+static const char PA_033[] = "Invalid hccapx message pair";
 static const char PA_255[] = "Unknown error";
 
 static const char HT_00000[] = "MD5";
@@ -128,6 +129,7 @@ static const char HT_03200[] = "bcrypt, Blowfish(OpenBSD)";
 static const char HT_03710[] = "md5($salt.md5($pass))";
 static const char HT_03711[] = "Mediawiki B type";
 static const char HT_03800[] = "md5($salt.$pass.$salt)";
+static const char HT_03910[] = "md5(md5($pass).md5($salt))";
 static const char HT_04010[] = "md5($salt.md5($salt.$pass))";
 static const char HT_04110[] = "md5($salt.md5($pass.$salt))";
 static const char HT_04300[] = "md5(strtoupper(md5($pass)))";
@@ -2041,6 +2043,8 @@ static u32 parse_and_store_salt (u8 *out, u8 *in, u32 salt_len, MAYBE_UNUSED con
     return UINT_MAX;
   }
 
+  memset (tmp, 0, sizeof (tmp_u32));
+
   memcpy (tmp, in, salt_len);
 
   if (hashconfig->opts_type & OPTS_TYPE_ST_HEX)
@@ -2069,8 +2073,6 @@ static u32 parse_and_store_salt (u8 *out, u8 *in, u32 salt_len, MAYBE_UNUSED con
   {
     salt_len = base64_decode (base64_to_int, (const u8 *) in, salt_len, (u8 *) tmp);
   }
-
-  memset (tmp + salt_len, 0, sizeof (tmp_u32) - salt_len);
 
   if (hashconfig->opts_type & OPTS_TYPE_ST_UNICODE)
   {
@@ -2109,11 +2111,15 @@ static u32 parse_and_store_salt (u8 *out, u8 *in, u32 salt_len, MAYBE_UNUSED con
 
   if (hashconfig->opts_type & OPTS_TYPE_ST_ADD80)
   {
+    if (len >= 256) return UINT_MAX;
+
     tmp[len++] = 0x80;
   }
 
   if (hashconfig->opts_type & OPTS_TYPE_ST_ADD01)
   {
+    if (len >= 256) return UINT_MAX;
+
     tmp[len++] = 0x01;
   }
 
@@ -2141,6 +2147,30 @@ static u32 parse_and_store_salt (u8 *out, u8 *in, u32 salt_len, MAYBE_UNUSED con
   memcpy (out, tmp, len);
 
   return (salt_len);
+}
+
+static void precompute_salt_md5 (u8 *salt, u32 salt_len, u8 *salt_pc)
+{
+  u32 salt_pc_block[16] = { 0 };
+
+  u8 *salt_pc_block_ptr = (u8 *) salt_pc_block;
+
+  memcpy (salt_pc_block_ptr, salt, salt_len);
+
+  salt_pc_block_ptr[salt_len] = 0x80;
+
+  salt_pc_block[14] = salt_len * 8;
+
+  u32 salt_pc_digest[4] = { MD5M_A, MD5M_B, MD5M_C, MD5M_D };
+
+  md5_64 (salt_pc_block, salt_pc_digest);
+
+  u8 *salt_buf_pc_ptr = salt_pc;
+
+  u32_to_hex_lower (salt_pc_digest[0], salt_buf_pc_ptr +  0);
+  u32_to_hex_lower (salt_pc_digest[1], salt_buf_pc_ptr +  8);
+  u32_to_hex_lower (salt_pc_digest[2], salt_buf_pc_ptr + 16);
+  u32_to_hex_lower (salt_pc_digest[3], salt_buf_pc_ptr + 24);
 }
 
 int bcrypt_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED const hashconfig_t *hashconfig)
@@ -2687,7 +2717,7 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
 
   if (in.signature != HCCAPX_SIGNATURE) return (PARSER_HCCAPX_SIGNATURE);
 
-  if (in.version != 3) return (PARSER_HCCAPX_VERSION);
+  if (in.version != HCCAPX_VERSION) return (PARSER_HCCAPX_VERSION);
 
   if (in.eapol_len < 1 || in.eapol_len > 255) return (PARSER_HCCAPX_EAPOL_LEN);
 
@@ -2711,6 +2741,10 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
   salt->salt_len = salt_len;
 
   salt->salt_iter = ROUNDS_WPA2 - 1;
+
+  memcpy (wpa->essid, in.essid, in.essid_len);
+
+  wpa->essid_len = in.essid_len;
 
   u8 *pke_ptr = (u8 *) wpa->pke;
 
@@ -2748,7 +2782,12 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
   memcpy (wpa->orig_nonce_ap,  in.nonce_ap,  32);
   memcpy (wpa->orig_nonce_sta, in.nonce_sta, 32);
 
-  wpa->authenticated = in.authenticated;
+  if (wpa->message_pair_chgd == true)
+  {
+    if (wpa->message_pair != in.message_pair) return (PARSER_HCCAPX_MESSAGE_PAIR);
+  }
+
+  wpa->message_pair = in.message_pair;
 
   wpa->keyver = in.keyver;
 
@@ -2760,7 +2799,7 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
 
   memcpy (eapol_ptr, in.eapol, wpa->eapol_len);
 
-  memset (eapol_ptr + wpa->eapol_len, 0, 256 - wpa->eapol_len);
+  memset (eapol_ptr + wpa->eapol_len, 0, (256 + 64) - wpa->eapol_len);
 
   eapol_ptr[wpa->eapol_len] = 0x80;
 
@@ -2793,6 +2832,8 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
   hash[3] = 3;
 
   u32 block[16];
+
+  memset (block, 0, sizeof (block));
 
   u8 *block_ptr = (u8 *) block;
 
@@ -2831,6 +2872,13 @@ int wpa_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
 
   for (int i = 0; i < 32; i++) block_ptr[i +  0] = wpa->orig_nonce_ap[i];
   for (int i = 0; i < 32; i++) block_ptr[i + 32] = wpa->orig_nonce_sta[i];
+
+  md5_64 (block, hash);
+
+  block[0] = digest[0];
+  block[1] = digest[1];
+  block[2] = digest[2];
+  block[3] = digest[3];
 
   md5_64 (block, hash);
 
@@ -3243,6 +3291,8 @@ int md5s_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
     if ((input_len < DISPLAY_LEN_MIN_10) || (input_len > DISPLAY_LEN_MAX_10)) return (PARSER_GLOBAL_LENGTH);
   }
 
+  const u32 opti_type = hashconfig->opti_type;
+
   u32 *digest = (u32 *) hash_buf->digest;
 
   salt_t *salt = hash_buf->salt;
@@ -3254,10 +3304,13 @@ int md5s_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   digest[2] = hex_to_u32 ((const u8 *) &input_buf[16]);
   digest[3] = hex_to_u32 ((const u8 *) &input_buf[24]);
 
-  digest[0] -= MD5M_A;
-  digest[1] -= MD5M_B;
-  digest[2] -= MD5M_C;
-  digest[3] -= MD5M_D;
+  if (opti_type & OPTI_TYPE_PRECOMPUTE_MERKLE)
+  {
+    digest[0] -= MD5M_A;
+    digest[1] -= MD5M_B;
+    digest[2] -= MD5M_C;
+    digest[3] -= MD5M_D;
+  }
 
   if (input_buf[32] != hashconfig->separator) return (PARSER_SEPARATOR_UNMATCHED);
 
@@ -3269,9 +3322,16 @@ int md5s_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_buf, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > 64) return (PARSER_SALT_LENGTH);
 
   salt->salt_len = salt_len;
+
+  if (hashconfig->opts_type & OPTS_TYPE_ST_HASH_MD5)
+  {
+    // precompute md5 of the salt
+
+    precompute_salt_md5 (salt_buf_ptr, salt_len, (u8 *) salt->salt_buf_pc);
+  }
 
   return (PARSER_OK);
 }
@@ -4081,32 +4141,13 @@ int ipb2_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_buf, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > 64) return (PARSER_SALT_LENGTH);
 
   salt->salt_len = salt_len;
 
-  // precomput first md5
+  // precompute md5 of the salt
 
-  u32 salt_pc_block[16] = { 0 };
-
-  u8 *salt_pc_block_ptr = (u8 *) salt_pc_block;
-
-  memcpy (salt_pc_block_ptr, salt_buf_ptr, salt_len);
-
-  salt_pc_block_ptr[salt_len] = 0x80;
-
-  salt_pc_block[14] = salt_len * 8;
-
-  u32 salt_pc_digest[4] = { MD5M_A, MD5M_B, MD5M_C, MD5M_D };
-
-  md5_64 (salt_pc_block, salt_pc_digest);
-
-  u8 *salt_buf_pc_ptr = (u8 *) salt->salt_buf_pc;
-
-  u32_to_hex_lower (salt_pc_digest[0], salt_buf_pc_ptr +  0);
-  u32_to_hex_lower (salt_pc_digest[1], salt_buf_pc_ptr +  8);
-  u32_to_hex_lower (salt_pc_digest[2], salt_buf_pc_ptr + 16);
-  u32_to_hex_lower (salt_pc_digest[3], salt_buf_pc_ptr + 24);
+  precompute_salt_md5 (salt_buf_ptr, salt_len, (u8 *) salt->salt_buf_pc);
 
   return (PARSER_OK);
 }
@@ -5095,7 +5136,9 @@ int ikepsk_md5_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE
 
   size_t in_len[9] = { 0 };
 
-  char *saveptr = NULL;
+  if (input_buf == NULL) return (PARSER_HASH_VALUE);
+
+  char *saveptr;
 
   in_off[0] = (u8 *) strtok_r ((char *) input_buf, ":", &saveptr);
 
@@ -5181,7 +5224,9 @@ int ikepsk_sha1_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYB
 
   size_t in_len[9] = { 0 };
 
-  char *saveptr = NULL;
+  if (input_buf == NULL) return (PARSER_HASH_VALUE);
+
+  char *saveptr;
 
   in_off[0] = (u8 *) strtok_r ((char *) input_buf, ":", &saveptr);
 
@@ -7431,6 +7476,8 @@ int des_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSED
 
   u8 *salt_pos = (u8 *) strchr ((const char *) digest_pos, ':');
 
+  if (salt_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+
   if (input_buf[16] != hashconfig->separator) return (PARSER_SEPARATOR_UNMATCHED);
 
   u32 salt_len = salt_pos - digest_pos;
@@ -7847,9 +7894,10 @@ int androidfde_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE
 
   databuf_pos++;
 
-  u32 data_len = input_len - 1 - 3 - 1 - saltlen_len - 1 - saltbuf_len - 1 - keylen_len - 1 - keybuf_len - 1;
-
-  if (data_len != 3072) return (PARSER_SALT_LENGTH);
+  // u32 data_len = input_len - 1 - 3 - 1 - saltlen_len - 1 - saltbuf_len - 1 - keylen_len - 1 - keybuf_len - 1;
+  //
+  // the following check is not needed, since we already checked all the other lengths (sub strings)
+  // if (data_len != 3072) return (PARSER_SALT_LENGTH);
 
   /**
    * copy data
@@ -8004,6 +8052,8 @@ int juniper_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UN
   u8 *salt_pos = md5crypt_hash + 3;
 
   u8 *hash_pos = (u8 *) strchr ((const char *) salt_pos, '$'); // or simply salt_pos + 8
+
+  if (hash_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
 
   salt->salt_len = hash_pos - salt_pos;    // should be 8
 
@@ -8648,9 +8698,9 @@ int oldoffice01_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYB
 
   encryptedVerifierHash_pos++;
 
-  u32 encryptedVerifierHash_len = input_len - 11 - version_len - 1 - osalt_len - 1 - encryptedVerifier_len - 1;
-
-  if (encryptedVerifierHash_len != 32) return (PARSER_SALT_LENGTH);
+  // The following check is implied (and therefore not needed aka dead code):
+  // u32 encryptedVerifierHash_len = input_len - 11 - version_len - 1 - osalt_len - 1 - encryptedVerifier_len - 1;
+  // if (encryptedVerifierHash_len != 32) return (PARSER_SALT_LENGTH);
 
   const u32 version = *version_pos - 0x30;
 
@@ -8905,9 +8955,9 @@ int oldoffice34_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYB
 
   encryptedVerifierHash_pos++;
 
-  u32 encryptedVerifierHash_len = input_len - 11 - version_len - 1 - osalt_len - 1 - encryptedVerifier_len - 1;
-
-  if (encryptedVerifierHash_len != 40) return (PARSER_SALT_LENGTH);
+  // The following check is implied (and therefore not needed aka dead code):
+  // u32 encryptedVerifierHash_len = input_len - 11 - version_len - 1 - osalt_len - 1 - encryptedVerifier_len - 1;
+  // if (encryptedVerifierHash_len != 40) return (PARSER_SALT_LENGTH);
 
   const u32 version = *version_pos - 0x30;
 
@@ -10441,7 +10491,7 @@ int pbkdf2_sha256_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MA
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_pos, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > (64 - 8)) return (PARSER_SALT_LENGTH);
 
   salt_buf_ptr[salt_len + 3] = 0x01;
   salt_buf_ptr[salt_len + 4] = 0x80;
@@ -10526,6 +10576,8 @@ int postgresql_auth_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, 
   salt_pos++;
 
   u8 *hash_pos = (u8 *) strchr ((const char *) salt_pos, '*');
+
+  if (hash_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
 
   hash_pos++;
 
@@ -10981,6 +11033,13 @@ int sip_auth_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_U
 
   u32 md5_max_len = 4 * 64;
 
+  u32 total_length = method_len + 1 + URI_prefix_len + URI_resource_len + URI_suffix_len;
+
+  if (URI_prefix_len) total_length++;
+  if (URI_suffix_len) total_length++;
+
+  if (total_length >= md5_max_len) return (PARSER_SALT_LENGTH);
+
   u32 md5_remaining_len = md5_max_len;
 
   u32 tmp_md5_buf[64] = { 0 };
@@ -11086,6 +11145,8 @@ int sip_auth_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_U
       tmp_digest[2],
       tmp_digest[3]);
   }
+
+  if (esalt_len >= 152) return (PARSER_SALT_LENGTH);
 
   // add 0x80 to esalt
 
@@ -11304,7 +11365,6 @@ int seven_zip_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_
     data_buf_len = input_len - 1 - 2 - 1 - data_type_len - 1 - NumCyclesPower_len - 1 - salt_len_len - 1 - salt_buf_len - 1 - iv_len_len - 1 - iv_buf_len - 1 - crc_buf_len - 1 - data_len_len - 1 - unpack_size_len - 1;
   }
 
-
   const u32 iter         = atoll ((const char *) NumCyclesPower_pos);
   const u32 crc          = atoll ((const char *) crc_buf_pos);
   const u32 data_type    = atoll ((const char *) data_type_pos);
@@ -11327,7 +11387,6 @@ int seven_zip_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_
 
     crc_len = atoll ((const char *) crc_len_pos);
   }
-
 
   /**
    * verify some data
@@ -11380,11 +11439,6 @@ int seven_zip_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_
   seven_zip->iv_buf[1] = hex_to_u32 ((const u8 *) &iv_buf_pos[ 8]);
   seven_zip->iv_buf[2] = hex_to_u32 ((const u8 *) &iv_buf_pos[16]);
   seven_zip->iv_buf[3] = hex_to_u32 ((const u8 *) &iv_buf_pos[24]);
-
-  seven_zip->iv_buf[0] = seven_zip->iv_buf[0];
-  seven_zip->iv_buf[1] = seven_zip->iv_buf[1];
-  seven_zip->iv_buf[2] = seven_zip->iv_buf[2];
-  seven_zip->iv_buf[3] = seven_zip->iv_buf[3];
 
   seven_zip->iv_len = iv_len;
 
@@ -11603,7 +11657,7 @@ int pbkdf2_md5_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_pos, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > (64 - 8)) return (PARSER_SALT_LENGTH);
 
   salt_buf_ptr[salt_len + 3] = 0x01;
   salt_buf_ptr[salt_len + 4] = 0x80;
@@ -11685,7 +11739,7 @@ int pbkdf2_sha1_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYB
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_pos, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > (64 - 8)) return (PARSER_SALT_LENGTH);
 
   salt_buf_ptr[salt_len + 3] = 0x01;
   salt_buf_ptr[salt_len + 4] = 0x80;
@@ -11772,7 +11826,7 @@ int pbkdf2_sha512_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MA
 
   salt_len = parse_and_store_salt (salt_buf_ptr, salt_pos, salt_len, hashconfig);
 
-  if (salt_len == UINT_MAX) return (PARSER_SALT_LENGTH);
+  if (salt_len > (128 - 16)) return (PARSER_SALT_LENGTH);
 
   salt_buf_ptr[salt_len + 3] = 0x01;
   salt_buf_ptr[salt_len + 4] = 0x80;
@@ -12162,10 +12216,10 @@ int krb5tgs_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UN
 
     data_pos = (u8 *) strchr ((const char *) account_pos, '*');
 
+    if (data_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
+
     /* Skip '*' */
     data_pos++;
-
-    if (data_pos == NULL) return (PARSER_SEPARATOR_UNMATCHED);
 
     u32 account_len = data_pos - account_pos + 1;
 
@@ -12275,9 +12329,6 @@ int axcrypt_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UN
   u32 salt_len = wrapped_key_pos - salt_pos;
 
   if (salt_len != 32) return (PARSER_SALT_LENGTH);
-
-  /* Skip '*' */
-  wrapped_key_pos++;
 
   u32 wrapped_key_len = input_len - 11 - 1 - wrapping_rounds_len - 1 - salt_len - 1;
 
@@ -12648,6 +12699,8 @@ int keepass_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UN
   if (is_keyfile_present == true)
   {
     u8 *keyfile_len_pos = (u8 *) strchr ((const char *) keyfile_inline_pos, '*');
+
+    if (keyfile_len_pos == NULL) return (PARSER_SALT_LENGTH);
 
     keyfile_len_pos++;
 
@@ -13121,15 +13174,18 @@ int zip2_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
 
   u32 param7_len = param8_pos - param7_pos;
 
-  param8_pos++;
-
   const u32 type  = atoll ((const char *) param0_pos);
   const u32 mode  = atoll ((const char *) param1_pos);
   const u32 magic = atoll ((const char *) param2_pos);
 
   u8 *salt_buf = param3_pos;
 
-  u32 verify_bytes; sscanf ((const char *) param4_pos, "%4x*", &verify_bytes);
+  u32 verify_bytes;
+
+  if (sscanf ((const char *) param4_pos, "%4x*", &verify_bytes) == EOF)
+  {
+    return (PARSER_SALT_VALUE);
+  }
 
   const u32 compress_length = atoll ((const char *) param5_pos);
 
@@ -13429,9 +13485,14 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
 
   struct luks_phdr hdr;
 
-  const int nread = fread (&hdr, sizeof (hdr), 1, fp);
+  const size_t nread = fread (&hdr, sizeof (hdr), 1, fp);
 
-  if (nread != 1) return (PARSER_LUKS_FILE_SIZE);
+  if (nread != 1)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_FILE_SIZE);
+  }
 
   // copy digest which we're not using ;)
 
@@ -13442,17 +13503,27 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   digest[2] = mkDigest_ptr[2];
   digest[3] = mkDigest_ptr[3];
   digest[4] = mkDigest_ptr[4];
-  digest[5] = mkDigest_ptr[5];
-  digest[6] = mkDigest_ptr[6];
-  digest[7] = mkDigest_ptr[7];
+  digest[5] = 0;
+  digest[6] = 0;
+  digest[7] = 0;
 
   // verify the content
 
   char luks_magic[6] = LUKS_MAGIC;
 
-  if (memcmp (hdr.magic, luks_magic, LUKS_MAGIC_L)) return (PARSER_LUKS_MAGIC);
+  if (memcmp (hdr.magic, luks_magic, LUKS_MAGIC_L))
+  {
+    fclose (fp);
 
-  if (byte_swap_16 (hdr.version) != 1) return (PARSER_LUKS_VERSION);
+    return (PARSER_LUKS_MAGIC);
+  }
+
+  if (byte_swap_16 (hdr.version) != 1)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_VERSION);
+  }
 
   if (strcmp (hdr.cipherName, "aes") == 0)
   {
@@ -13468,6 +13539,8 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   }
   else
   {
+    fclose (fp);
+
     return (PARSER_LUKS_CIPHER_TYPE);
   }
 
@@ -13493,6 +13566,8 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   }
   else
   {
+    fclose (fp);
+
     return (PARSER_LUKS_CIPHER_MODE);
   }
 
@@ -13518,6 +13593,8 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   }
   else
   {
+    fclose (fp);
+
     return (PARSER_LUKS_HASH_TYPE);
   }
 
@@ -13537,6 +13614,8 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   }
   else
   {
+    fclose (fp);
+
     return (PARSER_LUKS_KEY_SIZE);
   }
 
@@ -13604,6 +13683,8 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   }
   else
   {
+    fclose (fp);
+
     return (PARSER_LUKS_HASH_CIPHER);
   }
 
@@ -13612,8 +13693,19 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
   const u32 active  = byte_swap_32 (hdr.keyblock[keyslot_idx].active);
   const u32 stripes = byte_swap_32 (hdr.keyblock[keyslot_idx].stripes);
 
-  if (active  != LUKS_KEY_ENABLED) return (PARSER_LUKS_KEY_DISABLED);
-  if (stripes != LUKS_STRIPES)     return (PARSER_LUKS_KEY_STRIPES);
+  if (active  != LUKS_KEY_ENABLED)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_KEY_DISABLED);
+  }
+
+  if (stripes != LUKS_STRIPES)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_KEY_STRIPES);
+  }
 
   // configure the salt (not esalt)
 
@@ -13638,25 +13730,45 @@ int luks_parse_hash (u8 *input_buf, u32 input_len, hash_t *hash_buf, MAYBE_UNUSE
 
   const u32 keyMaterialOffset = byte_swap_32 (hdr.keyblock[keyslot_idx].keyMaterialOffset);
 
-  const int rc_seek1 = fseek (fp, keyMaterialOffset * 512, SEEK_SET);
+  const int rc_seek1 = fseeko (fp, keyMaterialOffset * 512, SEEK_SET);
 
-  if (rc_seek1 == -1) return (PARSER_LUKS_FILE_SIZE);
+  if (rc_seek1 == -1)
+  {
+    fclose (fp);
 
-  const int nread2 = fread (luks->af_src_buf, keyBytes, stripes, fp);
+    return (PARSER_LUKS_FILE_SIZE);
+  }
 
-  if (nread2 != (int) stripes) return (PARSER_LUKS_FILE_SIZE);
+  const size_t nread2 = fread (luks->af_src_buf, keyBytes, stripes, fp);
+
+  if (nread2 != stripes)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_FILE_SIZE);
+  }
 
   // finally, copy some encrypted payload data for entropy check
 
   const u32 payloadOffset = byte_swap_32 (hdr.payloadOffset);
 
-  const int rc_seek2 = fseek (fp, payloadOffset * 512, SEEK_SET);
+  const int rc_seek2 = fseeko (fp, payloadOffset * 512, SEEK_SET);
 
-  if (rc_seek2 == -1) return (PARSER_LUKS_FILE_SIZE);
+  if (rc_seek2 == -1)
+  {
+    fclose (fp);
 
-  const int nread3 = fread (luks->ct_buf, sizeof (u32), 128, fp);
+    return (PARSER_LUKS_FILE_SIZE);
+  }
 
-  if (nread3 != 128) return (PARSER_LUKS_FILE_SIZE);
+  const size_t nread3 = fread (luks->ct_buf, sizeof (u32), 128, fp);
+
+  if (nread3 != 128)
+  {
+    fclose (fp);
+
+    return (PARSER_LUKS_FILE_SIZE);
+  }
 
   // that should be it, close the fp
 
@@ -14135,9 +14247,13 @@ void seven_zip_hook_func (hc_device_param_t *device_param, hashes_t *hashes, con
     // init AES
 
     AES_KEY aes_key;
+
+    memset (&aes_key, 0, sizeof (aes_key));
+
     AES_set_decrypt_key (ukey, 256, &aes_key);
 
     AES_KEY aes_key_copied;
+
     memcpy (&aes_key_copied, &aes_key, sizeof (AES_KEY));
 
     if (padding_check_fast == true) // use part of the data as initialization vector
@@ -14555,6 +14671,7 @@ char *strhashtype (const u32 hash_mode)
     case  3710: return ((char *) HT_03710);
     case  3711: return ((char *) HT_03711);
     case  3800: return ((char *) HT_03800);
+    case  3910: return ((char *) HT_03910);
     case  4010: return ((char *) HT_04010);
     case  4110: return ((char *) HT_04110);
     case  4300: return ((char *) HT_04300);
@@ -14739,9 +14856,29 @@ char *strparser (const u32 parser_status)
     case PARSER_LUKS_HASH_CIPHER:     return ((char *) PA_030);
     case PARSER_HCCAPX_SIGNATURE:     return ((char *) PA_031);
     case PARSER_HCCAPX_VERSION:       return ((char *) PA_032);
+    case PARSER_HCCAPX_MESSAGE_PAIR:  return ((char *) PA_033);
   }
 
   return ((char *) PA_255);
+}
+
+int check_old_hccap (const char *hashfile)
+{
+  FILE *fp = fopen (hashfile, "rb");
+
+  if (fp == NULL) return -1;
+
+  u32 signature;
+
+  const size_t nread = fread (&signature, sizeof (u32), 1, fp);
+
+  fclose (fp);
+
+  if (nread != 1) return -1;
+
+  if (signature == HCCAPX_SIGNATURE) return 0;
+
+  return 1;
 }
 
 void to_hccapx_t (hashcat_ctx_t *hashcat_ctx, hccapx_t *hccapx, const u32 salt_pos, const u32 digest_pos)
@@ -14756,7 +14893,7 @@ void to_hccapx_t (hashcat_ctx_t *hashcat_ctx, hccapx_t *hccapx, const u32 salt_p
   memset (hccapx, 0, sizeof (hccapx_t));
 
   hccapx->signature = HCCAPX_SIGNATURE;
-  hccapx->version = 3;
+  hccapx->version   = HCCAPX_VERSION;
 
   const salt_t *salt = &salts_buf[salt_pos];
 
@@ -14767,7 +14904,7 @@ void to_hccapx_t (hashcat_ctx_t *hashcat_ctx, hccapx_t *hccapx, const u32 salt_p
   wpa_t *wpas = (wpa_t *) esalts_buf;
   wpa_t *wpa  = &wpas[salt_pos];
 
-  hccapx->authenticated = wpa->authenticated;
+  hccapx->message_pair = wpa->message_pair;
   hccapx->keyver = wpa->keyver;
 
   hccapx->eapol_len = wpa->eapol_len;
@@ -14822,11 +14959,11 @@ void wpa_essid_reuse (hashcat_ctx_t *hashcat_ctx)
 
   hashes_t *hashes = hashcat_ctx->hashes;
 
-  u32 salts_cnt = hashes->salts_cnt;
-
   salt_t *salts_buf = hashes->salts_buf;
 
   wpa_t *esalts_buf = hashes->esalts_buf;
+
+  const u32 salts_cnt = hashes->salts_cnt;
 
   for (u32 salt_idx = 1; salt_idx < salts_cnt; salt_idx++)
   {
@@ -14834,6 +14971,29 @@ void wpa_essid_reuse (hashcat_ctx_t *hashcat_ctx)
     {
       esalts_buf[salt_idx].essid_reuse = 1;
     }
+  }
+}
+
+void wpa_essid_reuse_next (hashcat_ctx_t *hashcat_ctx, const u32 salt_idx_cracked)
+{
+  // the first essid salt has been cracked, but it's possible others with the same essid are not
+  // thus we have to update essid_reuse to find the next uncracked salt with the same essid
+
+  hashes_t *hashes = hashcat_ctx->hashes;
+
+  salt_t *salts_buf = hashes->salts_buf;
+
+  wpa_t *esalts_buf = hashes->esalts_buf;
+
+  const u32 salts_cnt = hashes->salts_cnt;
+
+  const u32 salts_idx_next = salt_idx_cracked + 1;
+
+  if (salts_idx_next == salts_cnt) return;
+
+  if (memcmp ((char *) salts_buf[salts_idx_next].salt_buf, (char *) salts_buf[salt_idx_cracked].salt_buf, salts_buf[salts_idx_next].salt_len) == 0)
+  {
+    esalts_buf[salts_idx_next].essid_reuse = 0;
   }
 }
 
@@ -14851,7 +15011,7 @@ int ascii_digest (hashcat_ctx_t *hashcat_ctx, char *out_buf, const size_t out_le
   const u32 hash_type = hashconfig->hash_type;
   const u32 hash_mode = hashconfig->hash_mode;
   const u32 salt_type = hashconfig->salt_type;
-  const u32 opts_type = hashconfig->opts_type;
+  const u64 opts_type = hashconfig->opts_type;
   const u32 opti_type = hashconfig->opti_type;
   const u32 dgst_size = hashconfig->dgst_size;
 
@@ -15585,12 +15745,49 @@ int ascii_digest (hashcat_ctx_t *hashcat_ctx, char *out_buf, const size_t out_le
   }
   else if (hash_mode == 2500)
   {
-    snprintf (out_buf, out_len - 1, "%08x%08x%08x%08x:%s",
+    wpa_t *wpas = (wpa_t *) esalts_buf;
+
+    wpa_t *wpa = &wpas[salt_pos];
+
+    char *essid = (char *) wpa->essid;
+
+    int tmp_len = 0;
+
+    if (need_hexify (wpa->essid, wpa->essid_len, hashconfig->separator, 0) == true)
+    {
+      tmp_buf[tmp_len++] = '$';
+      tmp_buf[tmp_len++] = 'H';
+      tmp_buf[tmp_len++] = 'E';
+      tmp_buf[tmp_len++] = 'X';
+      tmp_buf[tmp_len++] = '[';
+
+      exec_hexify (wpa->essid, wpa->essid_len, (u8 *) tmp_buf + tmp_len);
+
+      tmp_len += wpa->essid_len * 2;
+
+      tmp_buf[tmp_len++] = ']';
+
+      essid = tmp_buf;
+    }
+
+    snprintf (out_buf, out_len - 1, "%08x%08x%08x%08x:%02x%02x%02x%02x%02x%02x:%02x%02x%02x%02x%02x%02x:%s",
       salt.salt_buf[12],
       salt.salt_buf[13],
       salt.salt_buf[14],
       salt.salt_buf[15],
-      (char *) salt.salt_buf);
+      wpa->orig_mac_ap[0],
+      wpa->orig_mac_ap[1],
+      wpa->orig_mac_ap[2],
+      wpa->orig_mac_ap[3],
+      wpa->orig_mac_ap[4],
+      wpa->orig_mac_ap[5],
+      wpa->orig_mac_sta[0],
+      wpa->orig_mac_sta[1],
+      wpa->orig_mac_sta[2],
+      wpa->orig_mac_sta[3],
+      wpa->orig_mac_sta[4],
+      wpa->orig_mac_sta[5],
+      essid);
   }
   else if (hash_mode == 4400)
   {
@@ -19557,6 +19754,7 @@ int hashconfig_init (hashcat_ctx_t *hashcat_ctx)
                  hashconfig->salt_type      = SALT_TYPE_INTERN;
                  hashconfig->attack_exec    = ATTACK_EXEC_INSIDE_KERNEL;
                  hashconfig->opts_type      = OPTS_TYPE_PT_GENERATE_LE
+                                            | OPTS_TYPE_ST_HASH_MD5
                                             | OPTS_TYPE_PT_ADD80
                                             | OPTS_TYPE_PT_ADDBITS14;
                  hashconfig->kern_type      = KERN_TYPE_MD55_SLTPW;
@@ -19577,7 +19775,8 @@ int hashconfig_init (hashcat_ctx_t *hashcat_ctx)
                  hashconfig->opts_type      = OPTS_TYPE_PT_GENERATE_LE
                                             | OPTS_TYPE_PT_UPPER
                                             | OPTS_TYPE_PT_BITSLICE
-                                            | OPTS_TYPE_PT_ALWAYS_ASCII;
+                                            | OPTS_TYPE_PT_ALWAYS_ASCII
+                                            | OPTS_TYPE_HASH_SPLIT;
                  hashconfig->kern_type      = KERN_TYPE_LM;
                  hashconfig->dgst_size      = DGST_SIZE_4_4; // originally DGST_SIZE_4_2
                  hashconfig->parse_func     = lm_parse_hash;
@@ -19672,6 +19871,27 @@ int hashconfig_init (hashcat_ctx_t *hashcat_ctx)
                                             | OPTI_TYPE_EARLY_SKIP
                                             | OPTI_TYPE_NOT_ITERATED
                                             | OPTI_TYPE_RAW_HASH;
+                 hashconfig->dgst_pos0      = 0;
+                 hashconfig->dgst_pos1      = 3;
+                 hashconfig->dgst_pos2      = 2;
+                 hashconfig->dgst_pos3      = 1;
+                 break;
+
+    case  3910:  hashconfig->hash_type      = HASH_TYPE_MD5;
+                 hashconfig->salt_type      = SALT_TYPE_INTERN;
+                 hashconfig->attack_exec    = ATTACK_EXEC_INSIDE_KERNEL;
+                 hashconfig->opts_type      = OPTS_TYPE_PT_GENERATE_LE
+                                            | OPTS_TYPE_PT_ADD80
+                                            | OPTS_TYPE_PT_ADDBITS14
+                                            | OPTS_TYPE_ST_HASH_MD5
+                                            | OPTS_TYPE_ST_ADD80
+                                            | OPTS_TYPE_ST_ADDBITS14;
+                 hashconfig->kern_type      = KERN_TYPE_MD55_PWSLT;
+                 hashconfig->dgst_size      = DGST_SIZE_4_4;
+                 hashconfig->parse_func     = md5s_parse_hash;
+                 hashconfig->opti_type      = OPTI_TYPE_ZERO_BYTE
+                                            | OPTI_TYPE_PRECOMPUTE_INIT
+                                            | OPTI_TYPE_EARLY_SKIP;
                  hashconfig->dgst_pos0      = 0;
                  hashconfig->dgst_pos1      = 3;
                  hashconfig->dgst_pos2      = 2;
@@ -21502,7 +21722,6 @@ int hashconfig_init (hashcat_ctx_t *hashcat_ctx)
                  hashconfig->parse_func     = pstoken_parse_hash;
                  hashconfig->opti_type      = OPTI_TYPE_ZERO_BYTE
                                             | OPTI_TYPE_PRECOMPUTE_INIT
-                                            | OPTI_TYPE_EARLY_SKIP
                                             | OPTI_TYPE_NOT_ITERATED
                                             | OPTI_TYPE_PREPENDED_SALT
                                             | OPTI_TYPE_RAW_HASH;
@@ -22427,15 +22646,29 @@ int hashconfig_general_defaults (hashcat_ctx_t *hashcat_ctx)
 
     char *keyfiles = hcstrdup (tcvc_keyfiles);
 
-    char *saveptr = NULL;
+    if (keyfiles == NULL) return -1;
+
+    char *saveptr;
 
     char *keyfile = strtok_r (keyfiles, ",", &saveptr);
+
+    if (keyfile == NULL)
+    {
+      free (keyfiles);
+
+      return -1;
+    }
 
     do
     {
       const int rc_crc32 = cpu_crc32 (hashcat_ctx, keyfile, (u8 *) keyfile_buf);
 
-      if (rc_crc32 == -1) return -1;
+      if (rc_crc32 == -1)
+      {
+        free (keyfiles);
+
+        return -1;
+      }
 
     } while ((keyfile = strtok_r (NULL, ",", &saveptr)) != NULL);
 
@@ -22608,7 +22841,6 @@ void hashconfig_benchmark_defaults (hashcat_ctx_t *hashcat_ctx, salt_t *salt, vo
                   break;
     }
   }
-
 
   // set default iterations
 

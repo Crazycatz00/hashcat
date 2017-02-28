@@ -34,27 +34,11 @@ u32 convert_from_hex (hashcat_ctx_t *hashcat_ctx, char *line_buf, const u32 line
     return (i);
   }
 
-  if (line_len >= 6) // $HEX[] = 6
+  if (is_hexify ((const u8 *) line_buf, (const int) line_len) == true)
   {
-    if (line_buf[0]            != '$') return (line_len);
-    if (line_buf[1]            != 'H') return (line_len);
-    if (line_buf[2]            != 'E') return (line_len);
-    if (line_buf[3]            != 'X') return (line_len);
-    if (line_buf[4]            != '[') return (line_len);
-    if (line_buf[line_len - 1] != ']') return (line_len);
+    const int new_len = exec_unhexify ((const u8 *) line_buf, (const int) line_len, (u8 *) line_buf, (const int) line_len);
 
-    size_t i, j;
-
-    for (i = 0, j = 5; j < line_len - 1; i += 1, j += 2)
-    {
-      const u8 c = hex_to_u8 ((const u8 *) &line_buf[j]);
-
-      line_buf[i] = c;
-    }
-
-    memset (line_buf + i, 0, line_len - i);
-
-    return (i);
+    return (u32) new_len;
   }
 
   return (line_len);
@@ -271,7 +255,7 @@ void pw_add (hc_device_param_t *device_param, const u8 *pw_buf, const int pw_len
   //}
 }
 
-u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
+int count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile, u64 *result)
 {
   combinator_ctx_t     *combinator_ctx     = hashcat_ctx->combinator_ctx;
   straight_ctx_t       *straight_ctx       = hashcat_ctx->straight_ctx;
@@ -285,7 +269,12 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
 
   d.cnt = 0;
 
-  hc_fstat (fileno (fd), &d.stat);
+  if (hc_fstat (fileno (fd), &d.stat))
+  {
+    *result = 0;
+
+    return 0;
+  }
 
   d.stat.st_mode    = 0;
   d.stat.st_nlink   = 0;
@@ -299,7 +288,12 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
   d.stat.st_blocks  = 0;
   #endif
 
-  if (d.stat.st_size == 0) return 0;
+  if (d.stat.st_size == 0)
+  {
+    *result = 0;
+
+    return 0;
+  }
 
   const u64 cached_cnt = dictstat_find (hashcat_ctx, &d);
 
@@ -311,10 +305,14 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
 
       if (user_options_extra->attack_kern == ATTACK_KERN_STRAIGHT)
       {
+        if (overflow_check_u64_mul (keyspace, straight_ctx->kernel_rules_cnt) == false) return -1;
+
         keyspace *= straight_ctx->kernel_rules_cnt;
       }
       else if (user_options_extra->attack_kern == ATTACK_KERN_COMBI)
       {
+        if (overflow_check_u64_mul (keyspace, combinator_ctx->combs_cnt) == false) return -1;
+
         keyspace *= combinator_ctx->combs_cnt;
       }
 
@@ -327,7 +325,9 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
 
       EVENT_DATA (EVENT_WORDLIST_CACHE_HIT, &cache_hit, sizeof (cache_hit));
 
-      return (keyspace);
+      *result = keyspace;
+
+      return 0;
     }
   }
 
@@ -378,10 +378,14 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
       {
         if (user_options_extra->attack_kern == ATTACK_KERN_STRAIGHT)
         {
+          if (overflow_check_u64_add (cnt, straight_ctx->kernel_rules_cnt) == false) return -1;
+
           cnt += straight_ctx->kernel_rules_cnt;
         }
         else if (user_options_extra->attack_kern == ATTACK_KERN_COMBI)
         {
+          if (overflow_check_u64_add (cnt, combinator_ctx->combs_cnt) == false) return -1;
+
           cnt += combinator_ctx->combs_cnt;
         }
 
@@ -429,7 +433,9 @@ u64 count_words (hashcat_ctx_t *hashcat_ctx, FILE *fd, const char *dictfile)
 
   //hc_signal (sigHandler_default);
 
-  return (cnt);
+  *result = cnt;
+
+  return 0;
 }
 
 int wl_data_init (hashcat_ctx_t *hashcat_ctx)

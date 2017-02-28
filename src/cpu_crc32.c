@@ -99,7 +99,7 @@ int cpu_crc32 (hashcat_ctx_t *hashcat_ctx, const char *filename, u8 keytab[64])
   {
     event_log_error (hashcat_ctx, "%s: %s", filename, strerror (errno));
 
-    return (-1);
+    return -1;
   }
 
   #define MAX_KEY_SIZE (1024 * 1024)
@@ -116,12 +116,10 @@ int cpu_crc32 (hashcat_ctx_t *hashcat_ctx, const char *filename, u8 keytab[64])
   {
     crc = crc32tab[(crc ^ buf[fpos]) & 0xff] ^ (crc >> 8);
 
-    keytab[kpos++] += (crc >> 24) & 0xff;
-    keytab[kpos++] += (crc >> 16) & 0xff;
-    keytab[kpos++] += (crc >>  8) & 0xff;
-    keytab[kpos++] += (crc >>  0) & 0xff;
-
-    if (kpos >= 64) kpos = 0;
+    keytab[kpos++] += (crc >> 24) & 0xff; if (kpos >= 64) kpos = 0;
+    keytab[kpos++] += (crc >> 16) & 0xff; if (kpos >= 64) kpos = 0;
+    keytab[kpos++] += (crc >>  8) & 0xff; if (kpos >= 64) kpos = 0;
+    keytab[kpos++] += (crc >>  0) & 0xff; if (kpos >= 64) kpos = 0;
   }
 
   hcfree (buf);

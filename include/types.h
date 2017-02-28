@@ -41,7 +41,7 @@ typedef uint64_t u64;
 
 #if defined (_WIN)
 typedef LARGE_INTEGER     hc_timer_t;
-#elif defined (_POSIX)
+#else
 typedef struct timeval    hc_timer_t;
 #endif
 
@@ -54,19 +54,17 @@ typedef struct timeval    hc_timer_t;
 #if defined (_WIN)
 typedef HANDLE            hc_thread_t;
 typedef CRITICAL_SECTION  hc_thread_mutex_t;
-#elif defined (_POSIX)
+#else
 typedef pthread_t         hc_thread_t;
 typedef pthread_mutex_t   hc_thread_mutex_t;
 #endif
 
 // stat
 
-#if defined (_POSIX)
-typedef struct stat hc_stat_t;
-#endif
-
 #if defined (_WIN)
 typedef struct _stat64 hc_stat_t;
+#else
+typedef struct stat hc_stat_t;
 #endif
 
 // enums
@@ -338,37 +336,39 @@ typedef enum opti_type
 
 typedef enum opts_type
 {
-  OPTS_TYPE_PT_UNICODE        = (1 <<  0),
-  OPTS_TYPE_PT_UPPER          = (1 <<  1),
-  OPTS_TYPE_PT_LOWER          = (1 <<  2),
-  OPTS_TYPE_PT_ADD01          = (1 <<  3),
-  OPTS_TYPE_PT_ADD02          = (1 <<  4),
-  OPTS_TYPE_PT_ADD80          = (1 <<  5),
-  OPTS_TYPE_PT_ADDBITS14      = (1 <<  6),
-  OPTS_TYPE_PT_ADDBITS15      = (1 <<  7),
-  OPTS_TYPE_PT_GENERATE_LE    = (1 <<  8),
-  OPTS_TYPE_PT_GENERATE_BE    = (1 <<  9),
-  OPTS_TYPE_PT_NEVERCRACK     = (1 << 10), // if we want all possible results
-  OPTS_TYPE_PT_BITSLICE       = (1 << 11),
-  OPTS_TYPE_PT_ALWAYS_ASCII   = (1 << 12),
-  OPTS_TYPE_ST_UNICODE        = (1 << 13),
-  OPTS_TYPE_ST_UPPER          = (1 << 14),
-  OPTS_TYPE_ST_LOWER          = (1 << 15),
-  OPTS_TYPE_ST_ADD01          = (1 << 16),
-  OPTS_TYPE_ST_ADD02          = (1 << 17),
-  OPTS_TYPE_ST_ADD80          = (1 << 18),
-  OPTS_TYPE_ST_ADDBITS14      = (1 << 19),
-  OPTS_TYPE_ST_ADDBITS15      = (1 << 20),
-  OPTS_TYPE_ST_GENERATE_LE    = (1 << 21),
-  OPTS_TYPE_ST_GENERATE_BE    = (1 << 22),
-  OPTS_TYPE_ST_HEX            = (1 << 23),
-  OPTS_TYPE_ST_BASE64         = (1 << 24),
-  OPTS_TYPE_HASH_COPY         = (1 << 25),
-  OPTS_TYPE_HOOK12            = (1 << 26),
-  OPTS_TYPE_HOOK23            = (1 << 27),
-  OPTS_TYPE_INIT2             = (1 << 28),
-  OPTS_TYPE_LOOP2             = (1 << 29),
-  OPTS_TYPE_BINARY_HASHFILE   = (1 << 30),
+  OPTS_TYPE_PT_UNICODE        = (1ULL <<  0),
+  OPTS_TYPE_PT_UPPER          = (1ULL <<  1),
+  OPTS_TYPE_PT_LOWER          = (1ULL <<  2),
+  OPTS_TYPE_PT_ADD01          = (1ULL <<  3),
+  OPTS_TYPE_PT_ADD02          = (1ULL <<  4),
+  OPTS_TYPE_PT_ADD80          = (1ULL <<  5),
+  OPTS_TYPE_PT_ADDBITS14      = (1ULL <<  6),
+  OPTS_TYPE_PT_ADDBITS15      = (1ULL <<  7),
+  OPTS_TYPE_PT_GENERATE_LE    = (1ULL <<  8),
+  OPTS_TYPE_PT_GENERATE_BE    = (1ULL <<  9),
+  OPTS_TYPE_PT_NEVERCRACK     = (1ULL << 10), // if we want all possible results
+  OPTS_TYPE_PT_BITSLICE       = (1ULL << 11),
+  OPTS_TYPE_PT_ALWAYS_ASCII   = (1ULL << 12),
+  OPTS_TYPE_ST_UNICODE        = (1ULL << 13),
+  OPTS_TYPE_ST_UPPER          = (1ULL << 14),
+  OPTS_TYPE_ST_LOWER          = (1ULL << 15),
+  OPTS_TYPE_ST_ADD01          = (1ULL << 16),
+  OPTS_TYPE_ST_ADD02          = (1ULL << 17),
+  OPTS_TYPE_ST_ADD80          = (1ULL << 18),
+  OPTS_TYPE_ST_ADDBITS14      = (1ULL << 19),
+  OPTS_TYPE_ST_ADDBITS15      = (1ULL << 20),
+  OPTS_TYPE_ST_GENERATE_LE    = (1ULL << 21),
+  OPTS_TYPE_ST_GENERATE_BE    = (1ULL << 22),
+  OPTS_TYPE_ST_HEX            = (1ULL << 23),
+  OPTS_TYPE_ST_BASE64         = (1ULL << 24),
+  OPTS_TYPE_ST_HASH_MD5       = (1ULL << 25),
+  OPTS_TYPE_HASH_COPY         = (1ULL << 26),
+  OPTS_TYPE_HASH_SPLIT        = (1ULL << 27),
+  OPTS_TYPE_HOOK12            = (1ULL << 28),
+  OPTS_TYPE_HOOK23            = (1ULL << 29),
+  OPTS_TYPE_INIT2             = (1ULL << 30),
+  OPTS_TYPE_LOOP2             = (1ULL << 31),
+  OPTS_TYPE_BINARY_HASHFILE   = (1ULL << 32),
 
 } opts_type_t;
 
@@ -455,6 +455,7 @@ typedef enum parser_rc
   PARSER_LUKS_HASH_CIPHER    = -30,
   PARSER_HCCAPX_SIGNATURE    = -31,
   PARSER_HCCAPX_VERSION      = -32,
+  PARSER_HCCAPX_MESSAGE_PAIR = -33,
   PARSER_UNKNOWN_ERROR       = -255
 
 } parser_rc_t;
@@ -499,6 +500,7 @@ typedef enum user_options_defaults
   GPU_TEMP_DISABLE        = false,
   GPU_TEMP_RETAIN         = 75,
   HASH_MODE               = 0,
+  HCCAPX_MESSAGE_PAIR     = 0,
   HEX_CHARSET             = false,
   HEX_SALT                = false,
   HEX_WORDLIST            = false,
@@ -571,73 +573,74 @@ typedef enum user_options_map
   IDX_GPU_TEMP_DISABLE         = 0xff07,
   IDX_GPU_TEMP_RETAIN          = 0xff08,
   IDX_HASH_MODE                = 'm',
+  IDX_HCCAPX_MESSAGE_PAIR      = 0xff09,
   IDX_HELP                     = 'h',
-  IDX_HEX_CHARSET              = 0xff09,
-  IDX_HEX_SALT                 = 0xff0a,
-  IDX_HEX_WORDLIST             = 0xff0b,
+  IDX_HEX_CHARSET              = 0xff0a,
+  IDX_HEX_SALT                 = 0xff0b,
+  IDX_HEX_WORDLIST             = 0xff0c,
   IDX_INCREMENT                = 'i',
-  IDX_INCREMENT_MAX            = 0xff0c,
-  IDX_INCREMENT_MIN            = 0xff0d,
-  IDX_INDUCTION_DIR            = 0xff0e,
-  IDX_KEEP_GUESSING            = 0xff0f,
+  IDX_INCREMENT_MAX            = 0xff0d,
+  IDX_INCREMENT_MIN            = 0xff0e,
+  IDX_INDUCTION_DIR            = 0xff0f,
+  IDX_KEEP_GUESSING            = 0xff10,
   IDX_KERNEL_ACCEL             = 'n',
   IDX_KERNEL_LOOPS             = 'u',
-  IDX_KEYSPACE                 = 0xff10,
-  IDX_LEFT                     = 0xff11,
+  IDX_KEYSPACE                 = 0xff11,
+  IDX_LEFT                     = 0xff12,
   IDX_LIMIT                    = 'l',
-  IDX_LOGFILE_DISABLE          = 0xff12,
-  IDX_LOOPBACK                 = 0xff13,
-  IDX_MACHINE_READABLE         = 0xff14,
-  IDX_MARKOV_CLASSIC           = 0xff15,
-  IDX_MARKOV_DISABLE           = 0xff16,
-  IDX_MARKOV_HCSTAT            = 0xff17,
+  IDX_LOGFILE_DISABLE          = 0xff13,
+  IDX_LOOPBACK                 = 0xff14,
+  IDX_MACHINE_READABLE         = 0xff15,
+  IDX_MARKOV_CLASSIC           = 0xff16,
+  IDX_MARKOV_DISABLE           = 0xff17,
+  IDX_MARKOV_HCSTAT            = 0xff18,
   IDX_MARKOV_THRESHOLD         = 't',
-  IDX_NVIDIA_SPIN_DAMP         = 0xff18,
+  IDX_NVIDIA_SPIN_DAMP         = 0xff19,
   IDX_OPENCL_DEVICES           = 'd',
   IDX_OPENCL_DEVICE_TYPES      = 'D',
   IDX_OPENCL_INFO              = 'I',
-  IDX_OPENCL_PLATFORMS         = 0xff19,
-  IDX_OPENCL_VECTOR_WIDTH      = 0xff1a,
-  IDX_OUTFILE_AUTOHEX_DISABLE  = 0xff1b,
-  IDX_OUTFILE_CHECK_DIR        = 0xff1c,
-  IDX_OUTFILE_CHECK_TIMER      = 0xff1d,
-  IDX_OUTFILE_FORMAT           = 0xff1e,
+  IDX_OPENCL_PLATFORMS         = 0xff1a,
+  IDX_OPENCL_VECTOR_WIDTH      = 0xff1b,
+  IDX_OUTFILE_AUTOHEX_DISABLE  = 0xff1c,
+  IDX_OUTFILE_CHECK_DIR        = 0xff1d,
+  IDX_OUTFILE_CHECK_TIMER      = 0xff1e,
+  IDX_OUTFILE_FORMAT           = 0xff1f,
   IDX_OUTFILE                  = 'o',
-  IDX_POTFILE_DISABLE          = 0xff1f,
-  IDX_POTFILE_PATH             = 0xff20,
-  IDX_POWERTUNE_ENABLE         = 0xff21,
-  IDX_QUIET                    = 0xff22,
-  IDX_REMOVE                   = 0xff23,
-  IDX_REMOVE_TIMER             = 0xff24,
-  IDX_RESTORE                  = 0xff25,
-  IDX_RESTORE_DISABLE          = 0xff26,
-  IDX_RESTORE_FILE_PATH        = 0xff27,
+  IDX_POTFILE_DISABLE          = 0xff20,
+  IDX_POTFILE_PATH             = 0xff21,
+  IDX_POWERTUNE_ENABLE         = 0xff22,
+  IDX_QUIET                    = 0xff23,
+  IDX_REMOVE                   = 0xff24,
+  IDX_REMOVE_TIMER             = 0xff25,
+  IDX_RESTORE                  = 0xff26,
+  IDX_RESTORE_DISABLE          = 0xff27,
+  IDX_RESTORE_FILE_PATH        = 0xff28,
   IDX_RP_FILE                  = 'r',
-  IDX_RP_GEN_FUNC_MAX          = 0xff28,
-  IDX_RP_GEN_FUNC_MIN          = 0xff29,
+  IDX_RP_GEN_FUNC_MAX          = 0xff29,
+  IDX_RP_GEN_FUNC_MIN          = 0xff2a,
   IDX_RP_GEN                   = 'g',
-  IDX_RP_GEN_SEED              = 0xff2a,
+  IDX_RP_GEN_SEED              = 0xff2b,
   IDX_RULE_BUF_L               = 'j',
   IDX_RULE_BUF_R               = 'k',
-  IDX_RUNTIME                  = 0xff2b,
-  IDX_SCRYPT_TMTO              = 0xff2c,
+  IDX_RUNTIME                  = 0xff2c,
+  IDX_SCRYPT_TMTO              = 0xff2d,
   IDX_SEGMENT_SIZE             = 'c',
   IDX_SEPARATOR                = 'p',
-  IDX_SESSION                  = 0xff2d,
-  IDX_SHOW                     = 0xff2e,
+  IDX_SESSION                  = 0xff2e,
+  IDX_SHOW                     = 0xff2f,
   IDX_SKIP                     = 's',
-  IDX_STATUS                   = 0xff2f,
-  IDX_STATUS_TIMER             = 0xff30,
-  IDX_STDOUT_FLAG              = 0xff31,
-  IDX_SPEED_ONLY               = 0xff32,
-  IDX_PROGRESS_ONLY            = 0xff33,
-  IDX_TRUECRYPT_KEYFILES       = 0xff34,
-  IDX_USERNAME                 = 0xff35,
-  IDX_VERACRYPT_KEYFILES       = 0xff36,
-  IDX_VERACRYPT_PIM            = 0xff37,
+  IDX_STATUS                   = 0xff30,
+  IDX_STATUS_TIMER             = 0xff31,
+  IDX_STDOUT_FLAG              = 0xff32,
+  IDX_SPEED_ONLY               = 0xff33,
+  IDX_PROGRESS_ONLY            = 0xff34,
+  IDX_TRUECRYPT_KEYFILES       = 0xff35,
+  IDX_USERNAME                 = 0xff36,
+  IDX_VERACRYPT_KEYFILES       = 0xff37,
+  IDX_VERACRYPT_PIM            = 0xff38,
   IDX_VERSION_LOWER            = 'v',
   IDX_VERSION                  = 'V',
-  IDX_WEAK_HASH_THRESHOLD      = 0xff38,
+  IDX_WEAK_HASH_THRESHOLD      = 0xff39,
   IDX_WORKLOAD_PROFILE         = 'w'
 
 } user_options_map_t;
@@ -676,10 +679,29 @@ typedef struct user
 
 } user_t;
 
+typedef enum split_origin
+{
+  SPLIT_ORIGIN_NONE   = 0,
+  SPLIT_ORIGIN_LEFT   = 1,
+  SPLIT_ORIGIN_RIGHT  = 2,
+
+} split_origin_t;
+
+typedef struct split
+{
+  // some hashes, like lm, are split. this id point to the other hash of the group
+
+  int split_group;
+  int split_neighbor;
+  int split_origin;
+
+} split_t;
+
 typedef struct hashinfo
 {
-  user_t *user;
-  char   *orighash;
+  user_t  *user;
+  char    *orighash;
+  split_t *split;
 
 } hashinfo_t;
 
@@ -758,7 +780,7 @@ struct hashconfig
   u32   hash_type;
   u32   salt_type;
   u32   attack_exec;
-  u32   opts_type;
+  u64   opts_type;
   u32   kern_type;
   u32   dgst_size;
   u32   opti_type;
@@ -857,6 +879,7 @@ typedef struct hc_device_param
 
   u32     sm_major;
   u32     sm_minor;
+  u32     kernel_exec_timeout;
 
   u8      pcie_bus;
   u8      pcie_device;
@@ -1183,10 +1206,10 @@ typedef struct dictstat_ctx
 
   dictstat_t *base;
 
-  #if defined (_POSIX)
-  size_t cnt;
-  #else
+  #if defined (_WIN)
   u32    cnt;
+  #else
+  size_t cnt;
   #endif
 
 } dictstat_ctx_t;
@@ -1246,7 +1269,7 @@ typedef struct potfile_ctx
 {
   bool     enabled;
 
-  bool     keep_all_usernames;
+  bool     keep_all_hashes;
 
   FILE    *fp;
   char    *filename;
@@ -1297,6 +1320,8 @@ typedef struct pidfile_ctx
   char *filename;
 
   pidfile_data_t *pd;
+
+  bool  pidfile_written;
 
 } pidfile_ctx_t;
 
@@ -1381,6 +1406,7 @@ typedef struct user_options
   bool   runtime_chgd;
   bool   workload_profile_chgd;
   bool   segment_size_chgd;
+  bool   hccapx_message_pair_chgd;
 
   bool   benchmark;
   bool   force;
@@ -1442,6 +1468,7 @@ typedef struct user_options
   u32    gpu_temp_abort;
   u32    gpu_temp_retain;
   u32    hash_mode;
+  u32    hccapx_message_pair;
   u32    increment_max;
   u32    increment_min;
   u32    kernel_accel;
@@ -1565,7 +1592,7 @@ typedef struct combinator_ctx
   char *dict2;
 
   u32 combs_mode;
-  u32 combs_cnt;
+  u64 combs_cnt;
 
 } combinator_ctx_t;
 

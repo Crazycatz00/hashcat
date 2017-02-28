@@ -77,7 +77,11 @@ static int ocl_check_dri (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx)
 
   char buf[HCBUFSIZ_TINY];
 
-  if (readlink (drm_card0_driver_path, buf, HCBUFSIZ_TINY) == -1) return 0;
+  const ssize_t len = readlink (drm_card0_driver_path, buf, HCBUFSIZ_TINY - 1);
+
+  if (len == -1) return 0;
+
+  buf[len] = 0;
 
   if (strstr (buf, "amdgpu") == NULL) return 0;
 
@@ -88,9 +92,11 @@ static int ocl_check_dri (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx)
   if (fd_dri == NULL)
   {
     event_log_error (hashcat_ctx, "Can not access %s: %m", dri_card0_path);
-    event_log_error (hashcat_ctx, "This causes some drivers to crash when OpenCL is used!");
-    event_log_error (hashcat_ctx, "Usually it's enough to add your user account to the \"video\" group to fix this problem:");
-    event_log_error (hashcat_ctx, "$ sudo usermod -a -G video $LOGNAME");
+
+    event_log_warning (hashcat_ctx, "This causes some drivers to crash when OpenCL is used!");
+    event_log_warning (hashcat_ctx, "Usually it's enough to add your user account to the \"video\" group to fix this problem:");
+    event_log_warning (hashcat_ctx, "$ sudo usermod -a -G video $LOGNAME");
+    event_log_warning (hashcat_ctx, NULL);
 
     return -1;
   }
@@ -134,7 +140,7 @@ static void generate_cached_kernel_filename (const u32 attack_exec, const u32 at
   }
 }
 
-static void generate_source_kernel_mp_filename (const u32 opti_type, const u32 opts_type, char *shared_dir, char *source_file)
+static void generate_source_kernel_mp_filename (const u32 opti_type, const u64 opts_type, char *shared_dir, char *source_file)
 {
   if ((opti_type & OPTI_TYPE_BRUTE_FORCE) && (opts_type & OPTS_TYPE_PT_GENERATE_BE))
   {
@@ -146,7 +152,7 @@ static void generate_source_kernel_mp_filename (const u32 opti_type, const u32 o
   }
 }
 
-static void generate_cached_kernel_mp_filename (const u32 opti_type, const u32 opts_type, char *profile_dir, const char *device_name_chksum, char *cached_file)
+static void generate_cached_kernel_mp_filename (const u32 opti_type, const u64 opts_type, char *profile_dir, const char *device_name_chksum, char *cached_file)
 {
   if ((opti_type & OPTI_TYPE_BRUTE_FORCE) && (opts_type & OPTS_TYPE_PT_GENERATE_BE))
   {
@@ -176,7 +182,9 @@ static int setup_opencl_platforms_filter (hashcat_ctx_t *hashcat_ctx, const char
   {
     char *platforms = hcstrdup (opencl_platforms);
 
-    char *saveptr = NULL;
+    if (platforms == NULL) return -1;
+
+    char *saveptr;
 
     char *next = strtok_r (platforms, ",", &saveptr);
 
@@ -187,6 +195,8 @@ static int setup_opencl_platforms_filter (hashcat_ctx_t *hashcat_ctx, const char
       if (platform < 1 || platform > 32)
       {
         event_log_error (hashcat_ctx, "Invalid OpenCL platform %d specified", platform);
+
+        hcfree (platforms);
 
         return -1;
       }
@@ -215,7 +225,9 @@ static int setup_devices_filter (hashcat_ctx_t *hashcat_ctx, const char *opencl_
   {
     char *devices = hcstrdup (opencl_devices);
 
-    char *saveptr = NULL;
+    if (devices == NULL) return -1;
+
+    char *saveptr;
 
     char *next = strtok_r (devices, ",", &saveptr);
 
@@ -226,6 +238,8 @@ static int setup_devices_filter (hashcat_ctx_t *hashcat_ctx, const char *opencl_
       if (device_id < 1 || device_id > 32)
       {
         event_log_error (hashcat_ctx, "Invalid device_id %d specified", device_id);
+
+        hcfree (devices);
 
         return -1;
       }
@@ -254,7 +268,9 @@ static int setup_device_types_filter (hashcat_ctx_t *hashcat_ctx, const char *op
   {
     char *device_types = hcstrdup (opencl_device_types);
 
-    char *saveptr = NULL;
+    if (device_types == NULL) return -1;
+
+    char *saveptr;
 
     char *next = strtok_r (device_types, ",", &saveptr);
 
@@ -265,6 +281,8 @@ static int setup_device_types_filter (hashcat_ctx_t *hashcat_ctx, const char *op
       if (device_type < 1 || device_type > 3)
       {
         event_log_error (hashcat_ctx, "Invalid device_type %d specified", device_type);
+
+        hcfree (device_types);
 
         return -1;
       }
@@ -288,7 +306,7 @@ static int setup_device_types_filter (hashcat_ctx_t *hashcat_ctx, const char *op
   return 0;
 }
 
-static int read_kernel_binary (hashcat_ctx_t *hashcat_ctx, const char *kernel_file, int num_devices, size_t *kernel_lengths, char **kernel_sources)
+static int read_kernel_binary (hashcat_ctx_t *hashcat_ctx, const char *kernel_file, size_t *kernel_lengths, char **kernel_sources)
 {
   FILE *fp = fopen (kernel_file, "rb");
 
@@ -296,7 +314,12 @@ static int read_kernel_binary (hashcat_ctx_t *hashcat_ctx, const char *kernel_fi
   {
     hc_stat_t st;
 
-    hc_stat (kernel_file, &st);
+    if (hc_stat (kernel_file, &st))
+    {
+      fclose (fp);
+
+      return -1;
+    }
 
     char *buf = (char *) hcmalloc (st.st_size + 1);
 
@@ -308,17 +331,16 @@ static int read_kernel_binary (hashcat_ctx_t *hashcat_ctx, const char *kernel_fi
     {
       event_log_error (hashcat_ctx, "%s: %s", kernel_file, strerror (errno));
 
+      hcfree (buf);
+
       return -1;
     }
 
     buf[st.st_size] = 0;
 
-    for (int i = 0; i < num_devices; i++)
-    {
-      kernel_lengths[i] = (size_t) st.st_size;
+    kernel_lengths[0] = (size_t) st.st_size;
 
-      kernel_sources[i] = buf;
-    }
+    kernel_sources[0] = buf;
   }
   else
   {
@@ -370,9 +392,9 @@ int ocl_init (hashcat_ctx_t *hashcat_ctx)
 
   memset (ocl, 0, sizeof (OCL_PTR));
 
-  #if   defined(_WIN)
+  #if   defined (_WIN)
   ocl->lib = hc_dlopen ("OpenCL");
-  #elif defined(__APPLE__)
+  #elif defined (__APPLE__)
   ocl->lib = hc_dlopen ("/System/Library/Frameworks/OpenCL.framework/OpenCL", RTLD_NOW);
   #elif defined (__CYGWIN__)
   ocl->lib = hc_dlopen ("opencl.dll", RTLD_NOW);
@@ -387,24 +409,26 @@ int ocl_init (hashcat_ctx_t *hashcat_ctx)
   if (ocl->lib == NULL)
   {
     event_log_error (hashcat_ctx, "Can not find an OpenCL ICD loader library");
-    event_log_error (hashcat_ctx, "");
-    event_log_error (hashcat_ctx, "You're probably missing the OpenCL runtime and driver installation");
+
+    event_log_warning (hashcat_ctx, "You're probably missing the OpenCL runtime and driver installation");
+    event_log_warning (hashcat_ctx, NULL);
 
     #if defined (__linux__)
-    event_log_error (hashcat_ctx, "* AMD users on Linux require \"AMDGPU-Pro Driver\" (16.40 or later)");
+    event_log_warning (hashcat_ctx, "* AMD users on Linux require \"AMDGPU-Pro Driver\" (16.40 or later)");
     #elif defined (_WIN)
-    event_log_error (hashcat_ctx, "* AMD users on Windows require \"AMD Radeon Software Crimson Edition\" (15.12 or later)");
+    event_log_warning (hashcat_ctx, "* AMD users on Windows require \"AMD Radeon Software Crimson Edition\" (15.12 or later)");
     #endif
 
-    event_log_error (hashcat_ctx, "* Intel CPU users require \"OpenCL Runtime for Intel Core and Intel Xeon Processors\" (16.1.1 or later)");
+    event_log_warning (hashcat_ctx, "* Intel CPU users require \"OpenCL Runtime for Intel Core and Intel Xeon Processors\" (16.1.1 or later)");
 
     #if defined (__linux__)
-    event_log_error (hashcat_ctx, "* Intel GPU on Linux users require \"OpenCL 2.0 GPU Driver Package for Linux\" (2.0 or later)");
+    event_log_warning (hashcat_ctx, "* Intel GPU on Linux users require \"OpenCL 2.0 GPU Driver Package for Linux\" (2.0 or later)");
     #elif defined (_WIN)
-    event_log_error (hashcat_ctx, "* Intel GPU on Windows users require \"OpenCL Driver for Intel Iris and Intel HD Graphics\"");
+    event_log_warning (hashcat_ctx, "* Intel GPU on Windows users require \"OpenCL Driver for Intel Iris and Intel HD Graphics\"");
     #endif
 
-    event_log_error (hashcat_ctx, "* NVidia users require \"NVIDIA Driver\" (367.x or later)");
+    event_log_warning (hashcat_ctx, "* NVidia users require \"NVIDIA Driver\" (367.x or later)");
+    event_log_warning (hashcat_ctx, NULL);
 
     return -1;
   }
@@ -1776,15 +1800,13 @@ int run_cracker (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, co
 
   u32 speed_pos = device_param->speed_pos;
 
-  #if defined (_POSIX)
-  if (device_param->timer_speed.tv_sec == 0)
+  #if defined (_WIN)
+  if (device_param->timer_speed.QuadPart == 0)
   {
     hc_timer_set (&device_param->timer_speed);
   }
-  #endif
-
-  #if defined (_WIN)
-  if (device_param->timer_speed.QuadPart == 0)
+  #else
+  if (device_param->timer_speed.tv_sec == 0)
   {
     hc_timer_set (&device_param->timer_speed);
   }
@@ -1899,9 +1921,11 @@ int run_cracker (hashcat_ctx_t *hashcat_ctx, hc_device_param_t *device_param, co
 
           char *line_buf_new = line_buf;
 
+          char rule_buf_out[BLOCK_SIZE];
+
           if (run_rule_engine (user_options_extra->rule_len_r, user_options->rule_buf_r))
           {
-            char rule_buf_out[BLOCK_SIZE] = { 0 };
+            memset (rule_buf_out, 0, sizeof (rule_buf_out));
 
             int rule_len_out = _old_apply_rule (user_options->rule_buf_r, user_options_extra->rule_len_r, line_buf, line_len, rule_buf_out);
 
@@ -2205,29 +2229,48 @@ int opencl_ctx_init (hashcat_ctx_t *hashcat_ctx)
 
   int CL_rc = hc_clGetPlatformIDs (hashcat_ctx, CL_PLATFORMS_MAX, platforms, &platforms_cnt);
 
-  if (CL_rc == -1) return -1;
+  #define FREE_OPENCL_CTX_ON_ERROR \
+  {                                \
+      hcfree (platforms_vendor);   \
+      hcfree (platforms_name);     \
+      hcfree (platforms_version);  \
+      hcfree (platforms_skipped);  \
+      hcfree (platforms);          \
+      hcfree (platform_devices);   \
+  }
+
+  if (CL_rc == -1)
+  {
+    FREE_OPENCL_CTX_ON_ERROR;
+
+    return -1;
+  }
 
   if (platforms_cnt == 0)
   {
     event_log_error (hashcat_ctx, "ATTENTION! No OpenCL compatible platform found");
-    event_log_error (hashcat_ctx, "");
-    event_log_error (hashcat_ctx, "You're probably missing the OpenCL runtime installation");
+
+    event_log_warning (hashcat_ctx, "You're probably missing the OpenCL runtime installation");
+    event_log_warning (hashcat_ctx, NULL);
 
     #if defined (__linux__)
-    event_log_error (hashcat_ctx, "* AMD users on Linux require \"AMDGPU-Pro Driver\" (16.40 or later)");
+    event_log_warning (hashcat_ctx, "* AMD users on Linux require \"AMDGPU-Pro Driver\" (16.40 or later)");
     #elif defined (_WIN)
-    event_log_error (hashcat_ctx, "* AMD users on Windows require \"AMD Radeon Software Crimson Edition\" (15.12 or later)");
+    event_log_warning (hashcat_ctx, "* AMD users on Windows require \"AMD Radeon Software Crimson Edition\" (15.12 or later)");
     #endif
 
-    event_log_error (hashcat_ctx, "* Intel CPU users require \"OpenCL Runtime for Intel Core and Intel Xeon Processors\" (16.1.1 or later)");
+    event_log_warning (hashcat_ctx, "* Intel CPU users require \"OpenCL Runtime for Intel Core and Intel Xeon Processors\" (16.1.1 or later)");
 
     #if defined (__linux__)
-    event_log_error (hashcat_ctx, "* Intel GPU on Linux users require \"OpenCL 2.0 GPU Driver Package for Linux\" (2.0 or later)");
+    event_log_warning (hashcat_ctx, "* Intel GPU on Linux users require \"OpenCL 2.0 GPU Driver Package for Linux\" (2.0 or later)");
     #elif defined (_WIN)
-    event_log_error (hashcat_ctx, "* Intel GPU on Windows users require \"OpenCL Driver for Intel Iris and Intel HD Graphics\"");
+    event_log_warning (hashcat_ctx, "* Intel GPU on Windows users require \"OpenCL Driver for Intel Iris and Intel HD Graphics\"");
     #endif
 
-    event_log_error (hashcat_ctx, "* NVidia users require \"NVIDIA Driver\" (367.x or later)");
+    event_log_warning (hashcat_ctx, "* NVidia users require \"NVIDIA Driver\" (367.x or later)");
+    event_log_warning (hashcat_ctx, NULL);
+
+    FREE_OPENCL_CTX_ON_ERROR;
 
     return -1;
   }
@@ -2239,6 +2282,8 @@ int opencl_ctx_init (hashcat_ctx_t *hashcat_ctx)
     if (opencl_platforms_filter > platform_cnt_mask)
     {
       event_log_error (hashcat_ctx, "The platform selected by the --opencl-platforms parameter is larger than the number of available platforms (%u)", platforms_cnt);
+
+      FREE_OPENCL_CTX_ON_ERROR;
 
       return -1;
     }
@@ -2271,7 +2316,12 @@ int opencl_ctx_init (hashcat_ctx_t *hashcat_ctx)
 
         CL_rc = hc_clGetDeviceInfo (hashcat_ctx, device, CL_DEVICE_TYPE, sizeof (device_type), &device_type, NULL);
 
-        if (CL_rc == -1) return -1;
+        if (CL_rc == -1)
+        {
+          FREE_OPENCL_CTX_ON_ERROR;
+
+          return -1;
+        }
 
         device_types_all |= device_type;
       }
@@ -2331,6 +2381,7 @@ void opencl_ctx_destroy (hashcat_ctx_t *hashcat_ctx)
 
 int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
 {
+  hashconfig_t   *hashconfig   = hashcat_ctx->hashconfig;
   opencl_ctx_t   *opencl_ctx   = hashcat_ctx->opencl_ctx;
   user_options_t *user_options = hashcat_ctx->user_options;
 
@@ -2468,6 +2519,22 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
     opencl_ctx->platforms_skipped[platform_id] = platform_skipped;
 
     if (platform_skipped == true) continue;
+
+    if (user_options->force == false)
+    {
+      if (platform_vendor_id == VENDOR_ID_MESA)
+      {
+        event_log_error (hashcat_ctx, "Mesa (Gallium) OpenCL platform detected!");
+
+        event_log_warning (hashcat_ctx, "It is known to cause errors which an unexperienced user could misinterpret as a bug in hashcat");
+        event_log_warning (hashcat_ctx, "You are STRONGLY encouraged to use the driver as listed in docs/readme.txt");
+        event_log_warning (hashcat_ctx, "You can use --opencl-platforms to manually deselect the platform and get rid of this error");
+        event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+        event_log_warning (hashcat_ctx, NULL);
+
+        return -1;
+      }
+    }
 
     hc_device_param_t *devices_param = opencl_ctx->devices_param;
 
@@ -2781,7 +2848,7 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
       {
         if (device_param->device_vendor_id == VENDOR_ID_AMD_USE_INTEL)
         {
-          if (user_options->force == 0)
+          if (user_options->force == false)
           {
             if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: Not a native Intel OpenCL runtime, expect massive speed loss", device_id + 1);
             if (user_options->quiet == false) event_log_warning (hashcat_ctx, "             You can use --force to override this but do not post error reports if you do so");
@@ -2844,9 +2911,9 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
       char *device_name_chksum = (char *) hcmalloc (HCBUFSIZ_TINY);
 
       #if defined (__x86_64__)
-      const size_t dnclen = snprintf (device_name_chksum, HCBUFSIZ_TINY - 1, "%d-%u-%u-%s-%s-%s-%d-%u", 64, device_param->platform_vendor_id, device_param->vector_width, device_param->device_name, device_param->device_version, device_param->driver_version, comptime, user_options->opencl_vector_width);
+      const size_t dnclen = snprintf (device_name_chksum, HCBUFSIZ_TINY - 1, "%d-%u-%u-%s-%s-%s-%d-%u-%u", 64, device_param->platform_vendor_id, device_param->vector_width, device_param->device_name, device_param->device_version, device_param->driver_version, comptime, user_options->opencl_vector_width, hashconfig->hash_mode);
       #else
-      const size_t dnclen = snprintf (device_name_chksum, HCBUFSIZ_TINY - 1, "%d-%u-%u-%s-%s-%s-%d-%u", 32, device_param->platform_vendor_id, device_param->vector_width, device_param->device_name, device_param->device_version, device_param->driver_version, comptime, user_options->opencl_vector_width);
+      const size_t dnclen = snprintf (device_name_chksum, HCBUFSIZ_TINY - 1, "%d-%u-%u-%s-%s-%s-%d-%u-%u", 32, device_param->platform_vendor_id, device_param->vector_width, device_param->device_name, device_param->device_version, device_param->driver_version, comptime, user_options->opencl_vector_width, hashconfig->hash_mode);
       #endif
 
       u32 device_name_digest[4] = { 0 };
@@ -2882,6 +2949,10 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
           #endif
 
           #if defined (_WIN)
+          need_nvapi = true;
+          #endif
+
+          #if defined (__CYGWIN__)
           need_nvapi = true;
           #endif
         }
@@ -2932,6 +3003,14 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
 
           device_param->sm_minor = sm_minor;
           device_param->sm_major = sm_major;
+
+          cl_uint kernel_exec_timeout = 0;
+
+          CL_rc = hc_clGetDeviceInfo (hashcat_ctx, device_param->device, CL_DEVICE_KERNEL_EXEC_TIMEOUT_NV, sizeof (kernel_exec_timeout), &kernel_exec_timeout, NULL);
+
+          if (CL_rc == -1) return -1;
+
+          device_param->kernel_exec_timeout = kernel_exec_timeout;
 
           // CPU burning loop damper
           // Value is given as number between 0-100
@@ -2984,10 +3063,11 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
               if (intel_warn == true)
               {
                 event_log_error (hashcat_ctx, "* Device #%u: Outdated or broken Intel OpenCL runtime detected!", device_id + 1);
-                event_log_error (hashcat_ctx, "");
-                event_log_error (hashcat_ctx, "You are STRONGLY encouraged to use the official supported NVIDIA driver");
-                event_log_error (hashcat_ctx, "See hashcat's homepage for official supported NVIDIA drivers");
-                event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+
+                event_log_warning (hashcat_ctx, "You are STRONGLY encouraged to use the official supported NVIDIA driver");
+                event_log_warning (hashcat_ctx, "See hashcat's homepage for official supported NVIDIA drivers");
+                event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+                event_log_warning (hashcat_ctx, NULL);
 
                 return -1;
               }
@@ -3017,11 +3097,12 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
               if (amd_warn == true)
               {
                 event_log_error (hashcat_ctx, "* Device #%u: Outdated or broken AMD driver detected!", device_id + 1);
-                event_log_error (hashcat_ctx, "");
-                event_log_error (hashcat_ctx, "You are STRONGLY encouraged to use the official supported AMD driver");
-                event_log_error (hashcat_ctx, "See hashcat's homepage for official supported AMD drivers");
-                event_log_error (hashcat_ctx, "Also see: https://hashcat.net/wiki/doku.php?id=frequently_asked_questions#i_may_have_the_wrong_driver_installed_what_should_i_do");
-                event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+
+                event_log_warning (hashcat_ctx, "You are STRONGLY encouraged to use the official supported AMD driver");
+                event_log_warning (hashcat_ctx, "See hashcat's homepage for official supported AMD drivers");
+                event_log_warning (hashcat_ctx, "Also see: https://hashcat.net/wiki/doku.php?id=frequently_asked_questions#i_may_have_the_wrong_driver_installed_what_should_i_do");
+                event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+                event_log_warning (hashcat_ctx, NULL);
 
                 return -1;
               }
@@ -3037,11 +3118,12 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
               if (nv_warn == true)
               {
                 event_log_error (hashcat_ctx, "* Device #%u: Outdated or broken NVIDIA driver detected!", device_id + 1);
-                event_log_error (hashcat_ctx, "");
-                event_log_error (hashcat_ctx, "You are STRONGLY encouraged to use the official supported NVIDIA driver");
-                event_log_error (hashcat_ctx, "See hashcat's homepage for official supported NVIDIA drivers");
-                event_log_error (hashcat_ctx, "Also see: https://hashcat.net/wiki/doku.php?id=frequently_asked_questions#i_may_have_the_wrong_driver_installed_what_should_i_do");
-                event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+
+                event_log_warning (hashcat_ctx, "You are STRONGLY encouraged to use the official supported NVIDIA driver");
+                event_log_warning (hashcat_ctx, "See hashcat's homepage for official supported NVIDIA drivers");
+                event_log_warning (hashcat_ctx, "Also see: https://hashcat.net/wiki/doku.php?id=frequently_asked_questions#i_may_have_the_wrong_driver_installed_what_should_i_do");
+                event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+                event_log_warning (hashcat_ctx, NULL);
 
                 return -1;
               }
@@ -3051,14 +3133,21 @@ int opencl_ctx_devices_init (hashcat_ctx_t *hashcat_ctx, const int comptime)
                 if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: Old CUDA compute capability %u.%u detected, OpenCL performance is reduced.", device_id + 1, device_param->sm_major, device_param->sm_minor);
                 if (user_options->quiet == false) event_log_warning (hashcat_ctx, "             For ideal hashcat performance on NVIDIA GPU you need CUDA compute capability 5.0 or higher (Maxwell)");
               }
+
+              if (device_param->kernel_exec_timeout != 0)
+              {
+                if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: WARNING! Kernel exec timeout is not disabled, it might cause you errors of code CL_OUT_OF_RESOURCES", device_id + 1);
+                if (user_options->quiet == false) event_log_warning (hashcat_ctx, "             See the wiki on how to disable it: https://hashcat.net/wiki/doku.php?id=timeout_patch");
+              }
             }
 
             if ((strstr (device_param->device_opencl_version, "beignet")) || (strstr (device_param->device_version, "beignet")))
             {
               event_log_error (hashcat_ctx, "* Device #%u: Intel beignet driver detected!", device_id + 1);
-              event_log_error (hashcat_ctx, "");
-              event_log_error (hashcat_ctx, "The beignet driver has been marked as half-baked and likely to fail kernel compilation");
-              event_log_error (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+
+              event_log_warning (hashcat_ctx, "The beignet driver has been marked as half-baked and likely to fail kernel compilation");
+              event_log_warning (hashcat_ctx, "You can use --force to override this but do not post error reports if you do so");
+              event_log_warning (hashcat_ctx, NULL);
 
               return -1;
             }
@@ -3183,7 +3272,7 @@ void opencl_ctx_devices_update_power (hashcat_ctx_t *hashcat_ctx)
         event_log_warning (hashcat_ctx, "Therefore, hashcat is unable to utilize the full parallelization power of your device(s).");
         event_log_warning (hashcat_ctx, "The cracking speed will drop.");
         event_log_warning (hashcat_ctx, "Workaround: https://hashcat.net/wiki/doku.php?id=frequently_asked_questions#how_to_create_more_work_for_full_speed");
-        event_log_warning (hashcat_ctx, "");
+        event_log_warning (hashcat_ctx, NULL);
       }
     }
   }
@@ -3641,7 +3730,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
 
       #if defined (DEBUG)
       if (user_options->quiet == false) event_log_warning (hashcat_ctx, "SCRYPT tmto optimizer value set to: %u, mem: %" PRIu64, scrypt_tmto_final, (u64) size_scrypt);
-      if (user_options->quiet == false) event_log_warning (hashcat_ctx, "");
+      if (user_options->quiet == false) event_log_warning (hashcat_ctx, NULL);
       #endif
     }
 
@@ -3880,9 +3969,13 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
        * kernel compile or load
        */
 
-      size_t *kernel_lengths = (size_t *) hcmalloc (sizeof (size_t));
+      size_t kernel_lengths_buf = 0;
 
-      char **kernel_sources = (char **) hcmalloc (sizeof (char *));
+      size_t *kernel_lengths = &kernel_lengths_buf;
+
+      char *kernel_sources_buf = NULL;
+
+      char **kernel_sources = &kernel_sources_buf;
 
       if (opencl_ctx->force_jit_compilation == -1)
       {
@@ -3892,7 +3985,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
           if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: Kernel %s not found in cache! Building may take a while...", device_id + 1, filename_from_filepath (cached_file));
           #endif
 
-          const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, 1, kernel_lengths, kernel_sources);
+          const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, kernel_lengths, kernel_sources);
 
           if (rc_read_kernel == -1) return -1;
 
@@ -3956,7 +4049,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         }
         else
         {
-          const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, 1, kernel_lengths, kernel_sources);
+          const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, kernel_lengths, kernel_sources);
 
           if (rc_read_kernel == -1) return -1;
 
@@ -3971,7 +4064,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
       }
       else
       {
-        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, 1, kernel_lengths, kernel_sources);
+        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, kernel_lengths, kernel_sources);
 
         if (rc_read_kernel == -1) return -1;
 
@@ -4031,9 +4124,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         }
       }
 
-      hcfree (kernel_lengths);
       hcfree (kernel_sources[0]);
-      hcfree (kernel_sources);
     }
 
     /**
@@ -4081,9 +4172,13 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
        * kernel compile or load
        */
 
-      size_t *kernel_lengths = (size_t *) hcmalloc (sizeof (size_t));
+      size_t kernel_lengths_buf = 0;
 
-      char **kernel_sources = (char **) hcmalloc (sizeof (char *));
+      size_t *kernel_lengths = &kernel_lengths_buf;
+
+      char *kernel_sources_buf = NULL;
+
+      char **kernel_sources = &kernel_sources_buf;
 
       if (cached == false)
       {
@@ -4091,7 +4186,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: Kernel %s not found in cache! Building may take a while...", device_id + 1, filename_from_filepath (cached_file));
         #endif
 
-        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, 1, kernel_lengths, kernel_sources);
+        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, kernel_lengths, kernel_sources);
 
         if (rc_read_kernel == -1) return -1;
 
@@ -4153,7 +4248,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
       }
       else
       {
-        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, 1, kernel_lengths, kernel_sources);
+        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, kernel_lengths, kernel_sources);
 
         if (rc_read_kernel == -1) return -1;
 
@@ -4166,9 +4261,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         if (CL_rc == -1) return -1;
       }
 
-      hcfree (kernel_lengths);
       hcfree (kernel_sources[0]);
-      hcfree (kernel_sources);
     }
 
     /**
@@ -4220,9 +4313,13 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
        * kernel compile or load
        */
 
-      size_t *kernel_lengths = (size_t *) hcmalloc (sizeof (size_t));
+      size_t kernel_lengths_buf = 0;
 
-      char **kernel_sources = (char **) hcmalloc (sizeof (char *));
+      size_t *kernel_lengths = &kernel_lengths_buf;
+
+      char *kernel_sources_buf = NULL;
+
+      char **kernel_sources = &kernel_sources_buf;
 
       if (cached == false)
       {
@@ -4230,7 +4327,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         if (user_options->quiet == false) event_log_warning (hashcat_ctx, "* Device #%u: Kernel %s not found in cache! Building may take a while...", device_id + 1, filename_from_filepath (cached_file));
         #endif
 
-        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, 1, kernel_lengths, kernel_sources);
+        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, source_file, kernel_lengths, kernel_sources);
 
         if (rc_read_kernel == -1) return -1;
 
@@ -4256,9 +4353,9 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         {
           char *build_log = (char *) hcmalloc (build_log_size + 1);
 
-          CL_rc = hc_clGetProgramBuildInfo (hashcat_ctx, device_param->program_amp, device_param->device, CL_PROGRAM_BUILD_LOG, build_log_size, build_log, NULL);
+          int CL_rc_build_info = hc_clGetProgramBuildInfo (hashcat_ctx, device_param->program_amp, device_param->device, CL_PROGRAM_BUILD_LOG, build_log_size, build_log, NULL);
 
-          if (CL_rc == -1) return -1;
+          if (CL_rc_build_info == -1) return -1;
 
           puts (build_log);
 
@@ -4292,7 +4389,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
       }
       else
       {
-        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, 1, kernel_lengths, kernel_sources);
+        const int rc_read_kernel = read_kernel_binary (hashcat_ctx, cached_file, kernel_lengths, kernel_sources);
 
         if (rc_read_kernel == -1) return -1;
 
@@ -4305,9 +4402,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
         if (CL_rc == -1) return -1;
       }
 
-      hcfree (kernel_lengths);
       hcfree (kernel_sources[0]);
-      hcfree (kernel_sources);
     }
 
     // return back to the folder we came from initially (workaround)
@@ -4773,7 +4868,7 @@ int opencl_session_begin (hashcat_ctx_t *hashcat_ctx)
 
       // mp_r
 
-      CL_rc = hc_clCreateKernel (hashcat_ctx, device_param->program_mp, "r_markov", &device_param->kernel_mp_r); if (CL_rc == -1) return -1;
+      CL_rc = hc_clCreateKernel (hashcat_ctx, device_param->program_mp, "r_markov", &device_param->kernel_mp_r);
 
       if (CL_rc == -1) return -1;
 

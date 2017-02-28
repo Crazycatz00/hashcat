@@ -74,7 +74,14 @@ int straight_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
         return -1;
       }
 
-      status_ctx->words_cnt = count_words (hashcat_ctx, fd, straight_ctx->dict);
+      const int rc = count_words (hashcat_ctx, fd, straight_ctx->dict, &status_ctx->words_cnt);
+
+      if (rc == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of wordlist: %s", straight_ctx->dict);
+
+        return -1;
+      }
 
       fclose (fd);
 
@@ -102,7 +109,14 @@ int straight_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
         return -1;
       }
 
-      status_ctx->words_cnt = count_words (hashcat_ctx, fd, combinator_ctx->dict1);
+      const int rc = count_words (hashcat_ctx, fd, combinator_ctx->dict1, &status_ctx->words_cnt);
+
+      if (rc == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of wordlist: %s", combinator_ctx->dict1);
+
+        return -1;
+      }
 
       fclose (fd);
     }
@@ -117,7 +131,14 @@ int straight_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
         return -1;
       }
 
-      status_ctx->words_cnt = count_words (hashcat_ctx, fd, combinator_ctx->dict2);
+      const int rc = count_words (hashcat_ctx, fd, combinator_ctx->dict2, &status_ctx->words_cnt);
+
+      if (rc == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of wordlist: %s", combinator_ctx->dict2);
+
+        return -1;
+      }
 
       fclose (fd);
     }
@@ -156,7 +177,14 @@ int straight_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
       return -1;
     }
 
-    status_ctx->words_cnt = count_words (hashcat_ctx, fd, straight_ctx->dict);
+    const int rc = count_words (hashcat_ctx, fd, straight_ctx->dict, &status_ctx->words_cnt);
+
+    if (rc == -1)
+    {
+      event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of wordlist: %s", straight_ctx->dict);
+
+      return -1;
+    }
 
     fclose (fd);
 
@@ -272,7 +300,7 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
 
         if (hc_path_is_directory (l0_filename) == true)
         {
-          char **dictionary_files = NULL;
+          char **dictionary_files;
 
           dictionary_files = scan_directory (l0_filename);
 
@@ -288,6 +316,8 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
               {
                 event_log_error (hashcat_ctx, "%s: %s", l1_filename, strerror (errno));
 
+                hcfree (dictionary_files);
+
                 return -1;
               }
 
@@ -295,7 +325,12 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
               {
                 const int rc = straight_ctx_add_wl (hashcat_ctx, l1_filename);
 
-                if (rc == -1) return -1;
+                if (rc == -1)
+                {
+                  hcfree (dictionary_files);
+
+                  return -1;
+                }
               }
             }
           }
@@ -336,7 +371,7 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
 
       if (hc_path_is_directory (l0_filename) == true)
       {
-        char **dictionary_files = NULL;
+        char **dictionary_files;
 
         dictionary_files = scan_directory (l0_filename);
 
@@ -352,6 +387,8 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
             {
               event_log_error (hashcat_ctx, "%s: %s", l1_filename, strerror (errno));
 
+              hcfree (dictionary_files);
+
               return -1;
             }
 
@@ -359,7 +396,12 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
             {
               const int rc = straight_ctx_add_wl (hashcat_ctx, l1_filename);
 
-              if (rc == -1) return -1;
+              if (rc == -1)
+              {
+                hcfree (dictionary_files);
+
+                return -1;
+              }
             }
           }
         }
@@ -391,7 +433,7 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
 
       if (hc_path_is_directory (l0_filename) == true)
       {
-        char **dictionary_files = NULL;
+        char **dictionary_files;
 
         dictionary_files = scan_directory (l0_filename);
 
@@ -407,6 +449,8 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
             {
               event_log_error (hashcat_ctx, "%s: %s", l1_filename, strerror (errno));
 
+              hcfree (dictionary_files);
+
               return -1;
             }
 
@@ -414,7 +458,12 @@ int straight_ctx_init (hashcat_ctx_t *hashcat_ctx)
             {
               const int rc = straight_ctx_add_wl (hashcat_ctx, l1_filename);
 
-              if (rc == -1) return -1;
+              if (rc == -1)
+              {
+                hcfree (dictionary_files);
+
+                return -1;
+              }
             }
           }
         }

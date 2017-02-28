@@ -10,17 +10,13 @@
 #include <unistd.h>
 #include <errno.h>
 
-#if defined (_POSIX)
-#include <sys/types.h>
-#include <sys/stat.h>
-#endif // _POSIX
-
 #if defined (_WIN)
 #include <windows.h>
 #include <psapi.h>
+#else
+#include <sys/types.h>
+#include <sys/stat.h>
 #endif // _WIN
-
-void unlink_pidfile (hashcat_ctx_t *hashcat_ctx);
 
 int pidfile_ctx_init (hashcat_ctx_t *hashcat_ctx);
 

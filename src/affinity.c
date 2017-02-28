@@ -63,7 +63,9 @@ int set_cpu_affinity (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx)
 
   char *devices = hcstrdup (user_options->cpu_affinity);
 
-  char *saveptr = NULL;
+  if (devices == NULL) return -1;
+
+  char *saveptr;
 
   char *next = strtok_r (devices, ",", &saveptr);
 
@@ -86,7 +88,9 @@ int set_cpu_affinity (MAYBE_UNUSED hashcat_ctx_t *hashcat_ctx)
     {
       event_log_error (hashcat_ctx, "Invalid cpu_id %d specified", cpu_id);
 
-      return (-1);
+      hcfree (devices);
+
+      return -1;
     }
 
     #if defined (_WIN)

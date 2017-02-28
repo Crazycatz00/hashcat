@@ -3,8 +3,6 @@
  * License.....: MIT
  */
 
-#define _SHA256_
-
 //not compatible
 //#define NEW_SIMD_CODE
 
@@ -15,7 +13,7 @@
 #include "inc_common.cl"
 #include "inc_simd.cl"
 
-__constant u32 k_sha256[64] =
+__constant u32a k_sha256[64] =
 {
   SHA256C00, SHA256C01, SHA256C02, SHA256C03,
   SHA256C04, SHA256C05, SHA256C06, SHA256C07,
@@ -35,7 +33,7 @@ __constant u32 k_sha256[64] =
   SHA256C3c, SHA256C3d, SHA256C3e, SHA256C3f,
 };
 
-static void sha256_transform (const u32x w[16], u32x digest[8])
+void sha256_transform (const u32x w[16], u32x digest[8])
 {
   u32x a = digest[0];
   u32x b = digest[1];
@@ -123,7 +121,7 @@ static void sha256_transform (const u32x w[16], u32x digest[8])
   digest[7] += h;
 }
 
-static void memcat64c_be (u32x block[16], const u32 offset, u32x carry[16])
+void memcat64c_be (u32x block[16], const u32 offset, u32x carry[16])
 {
   const u32 mod = offset & 3;
   const u32 div = offset / 4;

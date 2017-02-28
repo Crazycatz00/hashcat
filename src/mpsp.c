@@ -531,13 +531,13 @@ static void mp_setup_sys (cs_t *mp_sys)
                                                    mp_sys[7].cs_len = pos; }
 }
 
-static int mp_setup_usr (hashcat_ctx_t *hashcat_ctx, cs_t *mp_sys, cs_t *mp_usr, char *buf, u32 index)
+static int mp_setup_usr (hashcat_ctx_t *hashcat_ctx, cs_t *mp_sys, cs_t *mp_usr, char *buf, const u32 userindex)
 {
   FILE *fp = fopen (buf, "rb");
 
   if (fp == NULL) // feof() in case if file is empty
   {
-    const int rc = mp_expand (hashcat_ctx, buf, strlen (buf), mp_sys, mp_usr, index, 1);
+    const int rc = mp_expand (hashcat_ctx, buf, strlen (buf), mp_sys, mp_usr, userindex, 1);
 
     if (rc == -1) return -1;
   }
@@ -567,7 +567,9 @@ static int mp_setup_usr (hashcat_ctx_t *hashcat_ctx, cs_t *mp_sys, cs_t *mp_usr,
       return -1;
     }
 
-    const size_t len = in_superchop (mp_file);
+    mp_file[nread] = 0;
+
+    const size_t len = superchop_with_length (mp_file, nread);
 
     if (len == 0)
     {
@@ -576,7 +578,7 @@ static int mp_setup_usr (hashcat_ctx_t *hashcat_ctx, cs_t *mp_sys, cs_t *mp_usr,
       return -1;
     }
 
-    const int rc = mp_expand (hashcat_ctx, mp_file, len, mp_sys, mp_usr, index, 0);
+    const int rc = mp_expand (hashcat_ctx, mp_file, len, mp_sys, mp_usr, userindex, 0);
 
     if (rc == -1) return -1;
   }
@@ -584,11 +586,11 @@ static int mp_setup_usr (hashcat_ctx_t *hashcat_ctx, cs_t *mp_sys, cs_t *mp_usr,
   return 0;
 }
 
-static void mp_reset_usr (cs_t *mp_usr, u32 index)
+static void mp_reset_usr (cs_t *mp_usr, const u32 userindex)
 {
-  mp_usr[index].cs_len = 0;
+  mp_usr[userindex].cs_len = 0;
 
-  memset (mp_usr[index].cs_buf, 0, sizeof (mp_usr[index].cs_buf));
+  memset (mp_usr[userindex].cs_buf, 0, sizeof (mp_usr[userindex].cs_buf));
 }
 
 static int sp_setup_tbl (hashcat_ctx_t *hashcat_ctx)
@@ -643,11 +645,11 @@ static int sp_setup_tbl (hashcat_ctx_t *hashcat_ctx)
    * Load hcstats File
    */
 
+  char hcstat_tmp[256];
+
   if (hcstat == NULL)
   {
-    char hcstat_tmp[256] = { 0 };
-
-    snprintf (hcstat_tmp, sizeof (hcstat_tmp) - 1, "%s/%s", shared_dir, SP_HCSTAT);
+    snprintf (hcstat_tmp, sizeof (hcstat_tmp), "%s/%s", shared_dir, SP_HCSTAT);
 
     hcstat = hcstat_tmp;
   }
@@ -805,7 +807,7 @@ static int sp_setup_tbl (hashcat_ctx_t *hashcat_ctx)
   return 0;
 }
 
-static u64 sp_get_sum (u32 start, u32 stop, cs_t *root_css_buf)
+static int sp_get_sum (u32 start, u32 stop, cs_t *root_css_buf, u64 *result)
 {
   u64 sum = 1;
 
@@ -813,10 +815,14 @@ static u64 sp_get_sum (u32 start, u32 stop, cs_t *root_css_buf)
 
   for (i = start; i < stop; i++)
   {
+    if (overflow_check_u64_mul (sum, root_css_buf[i].cs_len) == false) return -1;
+
     sum *= root_css_buf[i].cs_len;
   }
 
-  return (sum);
+  *result = sum;
+
+  return 0;
 }
 
 static void sp_tbl_to_css (hcstat_table_t *root_table_buf, hcstat_table_t *markov_table_buf, cs_t *root_css_buf, cs_t *markov_css_buf, u32 threshold, u32 uniq_tbls[SP_PW_MAX][CHARSIZ])
@@ -965,9 +971,16 @@ static int mask_append (hashcat_ctx_t *hashcat_ctx, const char *mask, const char
 
       const int rc_truncated_mask = mp_get_truncated_mask (hashcat_ctx, mask, strlen (mask), increment_len, mask_truncated_next);
 
-      if (rc_truncated_mask == -1) break;
+      if (rc_truncated_mask == -1)
+      {
+        hcfree (mask_truncated);
+
+        break;
+      }
 
       const int rc = mask_append_final (hashcat_ctx, mask_truncated);
+
+      hcfree (mask_truncated);
 
       if (rc == -1) return -1;
     }
@@ -984,9 +997,9 @@ static int mask_append (hashcat_ctx_t *hashcat_ctx, const char *mask, const char
 
       const int rc = mask_append_final (hashcat_ctx, prepend_mask);
 
-      if (rc == -1) return -1;
-
       hcfree (prepend_mask);
+
+      if (rc == -1) return -1;
     }
     else
     {
@@ -1080,7 +1093,14 @@ int mask_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
 
       sp_tbl_to_css (mask_ctx->root_table_buf, mask_ctx->markov_table_buf, mask_ctx->root_css_buf, mask_ctx->markov_css_buf, user_options->markov_threshold, uniq_tbls);
 
-      combinator_ctx->combs_cnt = sp_get_sum (0, mask_ctx->css_cnt, mask_ctx->root_css_buf);
+      const int rc_get_sum = sp_get_sum (0, mask_ctx->css_cnt, mask_ctx->root_css_buf, &combinator_ctx->combs_cnt);
+
+      if (rc_get_sum == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of mask: %s", mask_ctx->mask);
+
+        return -1;
+      }
 
       const int rc_update_mp = opencl_session_update_mp (hashcat_ctx);
 
@@ -1170,7 +1190,14 @@ int mask_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
 
       sp_tbl_to_css (mask_ctx->root_table_buf, mask_ctx->markov_table_buf, mask_ctx->root_css_buf, mask_ctx->markov_css_buf, user_options->markov_threshold, uniq_tbls);
 
-      status_ctx->words_cnt = sp_get_sum (0, mask_ctx->css_cnt, mask_ctx->root_css_buf);
+      const int rc_get_sum1 = sp_get_sum (0, mask_ctx->css_cnt, mask_ctx->root_css_buf, &status_ctx->words_cnt);
+
+      if (rc_get_sum1 == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of mask: %s", mask_ctx->mask);
+
+        return -1;
+      }
 
       // copy + args
 
@@ -1178,7 +1205,14 @@ int mask_ctx_update_loop (hashcat_ctx_t *hashcat_ctx)
 
       mp_css_split_cnt (hashcat_ctx, css_cnt_orig, css_cnt_lr);
 
-      mask_ctx->bfs_cnt = sp_get_sum (0, css_cnt_lr[1], mask_ctx->root_css_buf);
+      const int rc_get_sum2 = sp_get_sum (0, css_cnt_lr[1], mask_ctx->root_css_buf, &mask_ctx->bfs_cnt);
+
+      if (rc_get_sum2 == -1)
+      {
+        event_log_error (hashcat_ctx, "Integer overflow detected in keyspace of mask: %s", mask_ctx->mask);
+
+        return -1;
+      }
 
       const int rc_update_mp_rl = opencl_session_update_mp_rl (hashcat_ctx, css_cnt_lr[0], css_cnt_lr[1]);
 

@@ -268,7 +268,10 @@ static int inner2_loop (hashcat_ctx_t *hashcat_ctx)
   logfile_sub_uint (runtime_start);
   logfile_sub_uint (runtime_stop);
 
-  hashcat_get_status (hashcat_ctx, status_ctx->hashcat_status_final);
+  if (hashcat_get_status (hashcat_ctx, status_ctx->hashcat_status_final) == -1)
+  {
+    fprintf (stderr, "Initialization problem: the hashcat status monitoring function returned an unexpected value\n");
+  }
 
   status_ctx->accessible = false;
 
@@ -612,7 +615,6 @@ static int outer_loop (hashcat_ctx_t *hashcat_ctx)
 
   EVENT (EVENT_OUTERLOOP_MAINSCREEN);
 
-
   /**
    * Tell user about cracked hashes by potfile
    */
@@ -654,6 +656,13 @@ static int outer_loop (hashcat_ctx_t *hashcat_ctx)
       if (device_param->skipped == true) continue;
 
       break;
+    }
+
+    if (device_param == NULL)
+    {
+      event_log_error (hashcat_ctx, "No device found for weak-hash-check");
+
+      return -1;
     }
 
     EVENT (EVENT_WEAK_HASH_PRE);
@@ -1115,10 +1124,6 @@ int hashcat_session_execute (hashcat_ctx_t *hashcat_ctx)
 
   unlink_restore (hashcat_ctx);
 
-  // unlink the pidfile
-
-  unlink_pidfile (hashcat_ctx);
-
   // final update dictionary cache
 
   dictstat_write (hashcat_ctx);
@@ -1212,7 +1217,7 @@ int hashcat_get_status (hashcat_ctx_t *hashcat_ctx, hashcat_status_t *hashcat_st
 
   memset (hashcat_status, 0, sizeof (hashcat_status_t));
 
-  if (status_ctx == NULL) return -1; // ways too early
+  if (status_ctx == NULL) return -1; // way too early
 
   if (status_ctx->accessible == false)
   {

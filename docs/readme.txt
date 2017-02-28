@@ -31,7 +31,7 @@ NVidia users require "NVIDIA Driver" (367.x or later)
 - Supports automatic keyspace ordering markov-chains
 - Built-in benchmarking system
 - Integrated thermal watchdog
-- 160+ Hash-types implemented with performance in mind
+- 200+ Hash-types implemented with performance in mind
 
 ##
 ## Hash-Types
@@ -65,6 +65,7 @@ NVidia users require "NVIDIA Driver" (367.x or later)
 - md5($salt.md5($salt.$pass))
 - md5($salt.md5($pass.$salt))
 - md5(md5($pass))
+- md5(md5($pass).md5($salt))
 - md5(strtoupper(md5($pass)))
 - md5(sha1($pass))
 - sha1($pass.$salt)

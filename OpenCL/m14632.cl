@@ -3,8 +3,6 @@
  * License.....: MIT
  */
 
-#define _LUKS_
-
 #define NEW_SIMD_CODE
 
 #include "inc_vendor.cl"
@@ -27,7 +25,7 @@
 
 #define MAX_ENTROPY 7.0
 
-__constant u64 k_sha512[80] =
+__constant u64a k_sha512[80] =
 {
   SHA512C00, SHA512C01, SHA512C02, SHA512C03,
   SHA512C04, SHA512C05, SHA512C06, SHA512C07,
@@ -51,7 +49,7 @@ __constant u64 k_sha512[80] =
   SHA512C4c, SHA512C4d, SHA512C4e, SHA512C4f,
 };
 
-static void sha512_transform_S (const u64 w0[4], const u64 w1[4], const u64 w2[4], const u64 w3[4], u64 digest[8])
+void sha512_transform_S (const u64 w0[4], const u64 w1[4], const u64 w2[4], const u64 w3[4], u64 digest[8])
 {
   u64 a = digest[0];
   u64 b = digest[1];
@@ -139,7 +137,7 @@ static void sha512_transform_S (const u64 w0[4], const u64 w1[4], const u64 w2[4
   digest[7] += h;
 }
 
-static void hmac_sha512_pad_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 ipad[8], u64 opad[8])
+void hmac_sha512_pad_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 ipad[8], u64 opad[8])
 {
   w0[0] = w0[0] ^ 0x3636363636363636;
   w0[1] = w0[1] ^ 0x3636363636363636;
@@ -198,7 +196,7 @@ static void hmac_sha512_pad_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 i
   sha512_transform_S (w0, w1, w2, w3, opad);
 }
 
-static void hmac_sha512_run_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 ipad[8], u64 opad[8], u64 digest[8])
+void hmac_sha512_run_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 ipad[8], u64 opad[8], u64 digest[8])
 {
   digest[0] = ipad[0];
   digest[1] = ipad[1];
@@ -240,7 +238,7 @@ static void hmac_sha512_run_S (u64 w0[4], u64 w1[4], u64 w2[4], u64 w3[4], u64 i
   sha512_transform_S (w0, w1, w2, w3, digest);
 }
 
-static void sha512_transform_V (const u64x w0[4], const u64x w1[4], const u64x w2[4], const u64x w3[4], u64x digest[8])
+void sha512_transform_V (const u64x w0[4], const u64x w1[4], const u64x w2[4], const u64x w3[4], u64x digest[8])
 {
   u64x a = digest[0];
   u64x b = digest[1];
@@ -328,7 +326,7 @@ static void sha512_transform_V (const u64x w0[4], const u64x w1[4], const u64x w
   digest[7] += h;
 }
 
-static void hmac_sha512_run_V (u64x w0[4], u64x w1[4], u64x w2[4], u64x w3[4], u64x ipad[8], u64x opad[8], u64x digest[8])
+void hmac_sha512_run_V (u64x w0[4], u64x w1[4], u64x w2[4], u64x w3[4], u64x ipad[8], u64x opad[8], u64x digest[8])
 {
   digest[0] = ipad[0];
   digest[1] = ipad[1];
@@ -615,6 +613,6 @@ __kernel void m14632_comp (__global pw_t *pws, __global const kernel_rule_t *rul
 
   if (entropy < MAX_ENTROPY)
   {
-    mark_hash (plains_buf, d_return_buf, salt_pos, 0, 0, gid, 0);
+    mark_hash (plains_buf, d_return_buf, salt_pos, digests_cnt, 0, 0, gid, 0);
   }
 }

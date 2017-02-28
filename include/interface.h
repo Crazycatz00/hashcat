@@ -175,15 +175,18 @@ typedef struct pdf
 typedef struct wpa
 {
   u32  pke[25];
-  u32  eapol[64];
+  u32  eapol[64 + 16];
   u16  eapol_len;
-  u8   authenticated;
+  u8   message_pair;
+  int  message_pair_chgd;
   u8   keyver;
   u8   orig_mac_ap[6];
   u8   orig_mac_sta[6];
   u8   orig_nonce_ap[32];
   u8   orig_nonce_sta[32];
   int  essid_reuse;
+  u8   essid_len;
+  u8   essid[32];
 
 } wpa_t;
 
@@ -810,6 +813,7 @@ typedef struct struct_psafe2_hdr
 
 } psafe2_hdr;
 
+#define HCCAPX_VERSION   4
 #define HCCAPX_SIGNATURE 0x58504348 // HCPX
 
 // this is required to force mingw to accept the packed attribute
@@ -819,7 +823,7 @@ struct hccapx
 {
   u32 signature;
   u32 version;
-  u8  authenticated;
+  u8  message_pair;
   u8  essid_len;
   u8  essid[32];
   u8  keyver;
@@ -1352,6 +1356,7 @@ typedef enum kern_type
   KERN_TYPE_BCRYPT                  = 3200,
   KERN_TYPE_MD5_SLT_MD5_PW          = 3710,
   KERN_TYPE_MD5_SLT_PW_SLT          = 3800,
+  KERN_TYPE_MD55_PWSLT              = 3910,
   KERN_TYPE_MD5_SLT_MD5_SLT_PW      = 4010,
   KERN_TYPE_MD5_SLT_MD5_PW_SLT      = 4110,
   KERN_TYPE_MD5U5                   = 4300,
@@ -1737,9 +1742,11 @@ char *stroptitype (const u32 opti_type);
 char *strhashtype (const u32 hash_mode);
 char *strparser   (const u32 parser_status);
 
+int check_old_hccap (const char *hashfile);
 void to_hccapx_t (hashcat_ctx_t *hashcat_ctx, hccapx_t *hccapx, const u32 salt_pos, const u32 digest_pos);
 
-void wpa_essid_reuse (hashcat_ctx_t *hashcat_ctx);
+void wpa_essid_reuse      (hashcat_ctx_t *hashcat_ctx);
+void wpa_essid_reuse_next (hashcat_ctx_t *hashcat_ctx, const u32 salt_idx_cracked);
 
 int ascii_digest (hashcat_ctx_t *hashcat_ctx, char *out_buf, const size_t out_len, const u32 salt_pos, const u32 digest_pos);
 

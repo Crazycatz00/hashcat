@@ -7,16 +7,51 @@
 #include "types.h"
 #include "shared.h"
 
+static inline int get_msb32 (const u32 v)
+{
+  return 32 - __builtin_clz (v);
+}
+
+static inline int get_msb64 (const u64 v)
+{
+  return 64 - __builtin_clzll (v);
+}
+
+bool overflow_check_u32_add (const u32 a, const u32 b)
+{
+  const int a_msb = get_msb32 (a);
+  const int b_msb = get_msb32 (b);
+
+  return ((a_msb < 32) && (b_msb < 32));
+}
+
+bool overflow_check_u32_mul (const u32 a, const u32 b)
+{
+  const int a_msb = get_msb32 (a);
+  const int b_msb = get_msb32 (b);
+
+  return ((a_msb + b_msb) < 32);
+}
+
+bool overflow_check_u64_add (const u64 a, const u64 b)
+{
+  const int a_msb = get_msb64 (a);
+  const int b_msb = get_msb64 (b);
+
+  return ((a_msb < 64) && (b_msb < 64));
+}
+
+bool overflow_check_u64_mul (const u64 a, const u64 b)
+{
+  const int a_msb = get_msb64 (a);
+  const int b_msb = get_msb64 (b);
+
+  return ((a_msb + b_msb) < 64);
+}
+
 bool is_power_of_2 (const u32 v)
 {
   return (v && !(v & (v - 1)));
-}
-
-u32 get_random_num (const u32 min, const u32 max)
-{
-  if (min == max) return (min);
-
-  return (((u32) rand () % (max - min)) + min);
 }
 
 u32 mydivc32 (const u32 dividend, const u32 divisor)
@@ -108,18 +143,6 @@ void hc_asprintf (char **strp, const char *fmt, ...)
   va_end (args);
 }
 
-#if defined (_POSIX)
-int hc_stat (const char *pathname, hc_stat_t *buf)
-{
-  return stat (pathname, buf);
-}
-
-int hc_fstat (int fd, hc_stat_t *buf)
-{
-  return fstat (fd, buf);
-}
-#endif
-
 #if defined (_WIN)
 int hc_stat (const char *pathname, hc_stat_t *buf)
 {
@@ -129,6 +152,16 @@ int hc_stat (const char *pathname, hc_stat_t *buf)
 int hc_fstat (int fd, hc_stat_t *buf)
 {
   return fstat64 (fd, buf);
+}
+#else
+int hc_stat (const char *pathname, hc_stat_t *buf)
+{
+  return stat (pathname, buf);
+}
+
+int hc_fstat (int fd, hc_stat_t *buf)
+{
+  return fstat (fd, buf);
 }
 #endif
 
@@ -246,7 +279,11 @@ bool hc_path_create (const char *path)
 {
   if (hc_path_exist (path) == true) return false;
 
-  if (creat (path, S_IRUSR | S_IWUSR) == -1) return false;
+  const int fd = creat (path, S_IRUSR | S_IWUSR);
+
+  if (fd == -1) return false;
+
+  close (fd);
 
   unlink (path);
 
@@ -324,4 +361,37 @@ void setup_seeding (const bool rp_gen_seed_chgd, const u32 rp_gen_seed)
 
     srand (ts);
   }
+}
+
+u32 get_random_num (const u32 min, const u32 max)
+{
+  if (min == max) return (min);
+
+  const u32 low = max - min;
+
+  if (low == 0) return (0);
+
+  #if defined (__linux__)
+
+  u32 data;
+
+  FILE *fp = fopen ("/dev/urandom", "rb");
+
+  if (fp == NULL) return (0);
+
+  const int nread = fread (&data, sizeof (u32), 1, fp);
+
+  fclose (fp);
+
+  if (nread != 1) return 0;
+
+  u64 r = data % low; r += min;
+
+  return (u32) r;
+
+  #else
+
+  return (((u32) rand () % (max - min)) + min);
+
+  #endif
 }
