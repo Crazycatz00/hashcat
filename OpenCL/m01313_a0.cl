@@ -3,7 +3,6 @@
  * License.....: MIT
  */
 
-#define _CRC32_
 //#define NEW_SIMD_CODE
 
 #include "inc_vendor.cl"
@@ -21,7 +20,7 @@
 #define CONVERTX(type) CONVERTX2(type, VECT_SIZE)
 #endif
 
-static u32x round_kh2hp(u32x a, u32x c)
+u32x round_kh2hp(u32x a, u32x c)
 {
   a ^= c << 24;
   for (u32 i = 0; i < 8; i += 1)
@@ -32,7 +31,7 @@ static u32x round_kh2hp(u32x a, u32x c)
   return a;
 }
 
-static u32x kh2hp(const u32x w[16], const u32 pw_len)
+u32x kh2hp(const u32x w[16], const u32 pw_len)
 {
   u32x a = ~0;
 
@@ -57,7 +56,7 @@ static u32x kh2hp(const u32x w[16], const u32 pw_len)
   return ~a;
 }
 
-static u32x round_kh2hs(u32x a, u32x c)
+u32x round_kh2hs(u32x a, u32x c)
 {
   a ^= c << 8;
   for (u32 i = 0; i < 8; i += 1)
@@ -68,7 +67,7 @@ static u32x round_kh2hs(u32x a, u32x c)
   return a;
 }
 
-static u16x kh2hs(const u32x w[16], const u32 pw_len)
+u16x kh2hs(const u32x w[16], const u32 pw_len)
 {
   u32x a = ~0;
 
