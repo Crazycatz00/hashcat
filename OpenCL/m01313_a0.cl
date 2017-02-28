@@ -1,5 +1,5 @@
 /**
- * Author......: Crazycatz00
+ * Author......: See docs/credits.txt
  * License.....: MIT
  */
 
